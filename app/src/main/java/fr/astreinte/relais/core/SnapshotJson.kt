@@ -32,6 +32,7 @@ object SnapshotJson {
                 .put("enabled", s.settings.enabled)
                 .put("defaultTime", s.settings.defaultTime.toString())
                 .put("subscriptionId", s.settings.subscriptionId)
+                .put("useDirectUssd", s.settings.useDirectUssd)
         )
         put(
             "state",
@@ -74,6 +75,7 @@ object SnapshotJson {
                 enabled = o.optBoolean("enabled", false),
                 defaultTime = o.optString("defaultTime", "08:00").let { LocalTime.parse(it) },
                 subscriptionId = o.optInt("subscriptionId", -1),
+                useDirectUssd = o.optBoolean("useDirectUssd", false),
             )
         } ?: Settings()
         val state = root.optJSONObject("state")?.let { o ->

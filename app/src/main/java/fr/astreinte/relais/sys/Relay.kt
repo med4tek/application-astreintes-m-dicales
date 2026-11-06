@@ -106,11 +106,10 @@ object Relay {
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ release() }, 9_000)
 
         Log.i(TAG, "Envoi $command ($label) – ${trigger.label}")
-        val sub = Store.snapshot.value.settings.subscriptionId
-        Ussd.send(app, command, sub) { result ->
+        Sender.send(app, command, Store.snapshot.value.settings) { result ->
             val ok = result is Ussd.Result.Ok
             val message = when (result) {
-                is Ussd.Result.Ok -> result.text.ifBlank { "Opérateur : OK (réponse vide)" }
+                is Ussd.Result.Ok -> result.text.ifBlank { "Code envoyé (réponse vide)" }
                 is Ussd.Result.Fail -> result.reason
             }
             onResult(app, command, label, trigger, ok, message)

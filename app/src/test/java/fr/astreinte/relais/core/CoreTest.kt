@@ -139,7 +139,7 @@ class SnapshotJsonTest {
                 Shift("s1", LocalDate.parse("2026-11-06"), LocalTime.of(8, 0), "d1"),
                 Shift("s2", LocalDate.parse("2026-11-07"), LocalTime.of(20, 30), null),
             ),
-            settings = Settings(enabled = true, defaultTime = LocalTime.of(7, 30), subscriptionId = 3),
+            settings = Settings(enabled = true, defaultTime = LocalTime.of(7, 30), subscriptionId = 3, useDirectUssd = true),
             state = ApplyState("**21*0612345678#", false, 1234L, "oups \"guillemets\"", 2),
             log = listOf(LogEntry(99L, "alarme", "##21#", true, "ok\nligne 2")),
         )

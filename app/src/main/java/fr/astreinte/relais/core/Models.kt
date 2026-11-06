@@ -19,6 +19,12 @@ data class Settings(
     val defaultTime: LocalTime = LocalTime.of(8, 0),
     /** -1 = SIM par défaut pour les appels. */
     val subscriptionId: Int = -1,
+    /**
+     * false (défaut) : le téléphone "compose" le code comme le ferait le composeur (méthode fiable
+     * pour les codes de renvoi, mais l'app ne lit pas la réponse de l'opérateur).
+     * true : API USSD directe (lit la réponse, mais beaucoup de téléphones la refusent pour **21*).
+     */
+    val useDirectUssd: Boolean = false,
 )
 
 /** Dernier envoi tenté, pour savoir s'il faut renvoyer le code. */

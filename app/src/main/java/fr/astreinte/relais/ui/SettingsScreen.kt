@@ -48,6 +48,7 @@ import fr.astreinte.relais.core.Planner
 import fr.astreinte.relais.core.Snapshot
 import fr.astreinte.relais.sys.Perms
 import fr.astreinte.relais.sys.Relay
+import fr.astreinte.relais.sys.Sender
 import fr.astreinte.relais.sys.Ussd
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -145,19 +146,34 @@ fun SettingsScreen(
             SimPicker(sims, snap.settings.subscriptionId) { id -> onEdit { it.copy(settings = it.settings.copy(subscriptionId = id)) } }
         }
 
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Envoi USSD direct (expérimental)")
+                Text(
+                    "À essayer seulement si la méthode par défaut (composition par le téléphone) ne marche pas. " +
+                        "Beaucoup de téléphones répondent « échec réseau/opérateur (code -1) » pour les codes de renvoi.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = snap.settings.useDirectUssd,
+                onCheckedChange = { v -> onEdit { it.copy(settings = it.settings.copy(useDirectUssd = v)) } },
+            )
+        }
+
         HorizontalDivider()
 
         // --- Outils ---
         Text("Outils de vérification", style = MaterialTheme.typography.titleMedium)
         Text(
-            "À essayer une fois avant de compter sur l'automatisme : le résultat s'affiche tel que l'opérateur le renvoie.",
+            "À essayer une fois avant de compter sur l'automatisme. Le téléphone compose le code et Android affiche lui-même la réponse de l'opérateur dans une fenêtre.",
             style = MaterialTheme.typography.bodySmall,
         )
         OutlinedButton(
             enabled = callOk && !queryRunning,
             onClick = {
                 queryRunning = true
-                Ussd.send(context, Codes.QUERY, snap.settings.subscriptionId) { r ->
+                Sender.send(context, Codes.QUERY, snap.settings) { r ->
                     queryRunning = false
                     queryResult = when (r) {
                         is Ussd.Result.Ok -> r.text.ifBlank { "(réponse vide)" }
@@ -248,7 +264,7 @@ fun SettingsScreen(
     queryResult?.let { text ->
         AlertDialog(
             onDismissRequest = { queryResult = null },
-            title = { Text("Réponse de l'opérateur") },
+            title = { Text("Vérification du renvoi") },
             text = { Text(text) },
             confirmButton = { TextButton(onClick = { queryResult = null }) { Text("OK") } },
         )
