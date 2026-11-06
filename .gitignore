@@ -1,0 +1,15 @@
+*.iml
+.gradle/
+build/
+local.properties
+.idea/
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Clé de signature personnelle : ne jamais publier
+keystore.properties
+*.keystore
+*.jks
+*.apk
