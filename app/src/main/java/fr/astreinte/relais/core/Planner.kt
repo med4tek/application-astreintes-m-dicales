@@ -39,6 +39,24 @@ object Planner {
     }
 
     /**
+     * Pour chacune des [dates] (pas forcément consécutives) : supprime les changements existants
+     * et pose un changement à [time] vers [doctorId].
+     */
+    fun assignDates(
+        shifts: List<Shift>,
+        dates: Set<LocalDate>,
+        time: LocalTime,
+        doctorId: String?,
+        newId: () -> String,
+    ): List<Shift> =
+        shifts.filter { it.date !in dates } +
+            dates.sorted().map { Shift(newId(), it, time, doctorId) }
+
+    /** Supprime tous les changements des [dates] (le renvoi de la veille continue alors). */
+    fun clearDates(shifts: List<Shift>, dates: Set<LocalDate>): List<Shift> =
+        shifts.filter { it.date !in dates }
+
+    /**
      * Pour chaque jour de [from] à [to] inclus : supprime les changements existants et pose un
      * changement à [time] vers [doctorId]. [newId] fournit les identifiants.
      */

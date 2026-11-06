@@ -7,7 +7,7 @@ Application Android personnelle (hors Play Store) qui change toute seule le **re
 ## Utilisation
 
 1. **Médecins** : ajoutez chaque médecin avec son numéro de portable.
-2. **Planning** : touchez un jour, choisissez le médecin et l'heure de relève. « Ajouter un changement » permet plusieurs relèves dans la même journée. « Remplir… » pose le même médecin sur une période.
+2. **Planning** : touchez un jour, choisissez le médecin et l'heure de relève. « Ajouter un changement » permet plusieurs relèves dans la même journée. « Sélectionner des jours » (ou appui long sur un jour) permet de cocher plusieurs jours, même non consécutifs (raccourcis : Tout le mois, Lun–ven, Week-ends), puis « Assigner… » pose le même médecin à la même heure sur tous. « Remplir une période » fait de même du jour A au jour B.
    Un changement reste valable **jusqu'au suivant** : un jour sans entrée garde le médecin de la veille (affiché en gris, « suite »).
 3. **Réglages** : accordez les autorisations, **testez** avec « Vérifier le renvoi actuellement en place » (`*#21#`), puis activez la **Bascule automatique**.
 

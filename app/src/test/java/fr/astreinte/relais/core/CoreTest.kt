@@ -122,6 +122,24 @@ class PlannerTest {
         assertEquals(4, result.map { it.date }.distinct().size)
     }
 
+    @Test fun `assigner un medecin a des jours non consecutifs`() {
+        var n = 0
+        val dates = setOf(LocalDate.parse("2026-11-06"), LocalDate.parse("2026-11-08"), LocalDate.parse("2026-11-20"))
+        val result = Planner.assignDates(shifts, dates, LocalTime.of(9, 0), "Z") { "id${n++}" }
+        // le 07 (b, b2) n'est pas touché ; le 06 et le 08 sont remplacés ; le 20 est ajouté
+        assertEquals(setOf("b", "b2"), Planner.shiftsOn(result, LocalDate.parse("2026-11-07")).map { it.id }.toSet())
+        assertEquals(1, Planner.shiftsOn(result, LocalDate.parse("2026-11-06")).size)
+        assertEquals("Z", Planner.shiftsOn(result, LocalDate.parse("2026-11-08")).single().doctorId)
+        assertEquals("Z", Planner.shiftsOn(result, LocalDate.parse("2026-11-20")).single().doctorId)
+        assertEquals(5, result.size)
+    }
+
+    @Test fun `vider des jours`() {
+        val result = Planner.clearDates(shifts, setOf(LocalDate.parse("2026-11-07")))
+        assertEquals(2, result.size)
+        assertTrue(result.none { it.date == LocalDate.parse("2026-11-07") })
+    }
+
     @Test fun `remplir avec une fin avant le debut ne fait rien`() {
         val result = Planner.fillRange(
             shifts, LocalDate.parse("2026-11-09"), LocalDate.parse("2026-11-06"),

@@ -1,7 +1,10 @@
 package fr.astreinte.relais.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +30,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -84,6 +88,17 @@ fun PlanningScreen(
     var editingDay by remember { mutableStateOf<LocalDate?>(null) }
     var filling by remember { mutableStateOf(false) }
 
+    // Sélection multiple : jours choisis (en "epoch day"), conservés même en changeant de mois
+    var selectMode by rememberSaveable { mutableStateOf(false) }
+    var selected by rememberSaveable { mutableStateOf<Set<Long>>(emptySet()) }
+    var assigning by remember { mutableStateOf(false) }
+    fun exitSelection() { selectMode = false; selected = emptySet() }
+    fun toggle(date: LocalDate) {
+        val k = date.toEpochDay()
+        selected = if (k in selected) selected - k else selected + k
+    }
+    BackHandler(enabled = selectMode) { exitSelection() }
+
     val today = LocalDate.now(zone)
     val listState = rememberLazyListState()
     LaunchedEffect(monthIndex) {
@@ -108,10 +123,39 @@ fun PlanningScreen(
             IconButton(onClick = { monthIndex++ }) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Mois suivant")
             }
-            OutlinedButton(onClick = { filling = true }, contentPadding = PaddingValues(horizontal = 12.dp)) {
-                Text("Remplir…")
+        }
+
+        val monthDays = (1..month.lengthOfMonth()).map { month.atDay(it) }
+        if (!selectMode) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(onClick = { selectMode = true }, modifier = Modifier.weight(1f)) {
+                    Text("Sélectionner des jours")
+                }
+                OutlinedButton(onClick = { filling = true }, modifier = Modifier.weight(1f)) {
+                    Text("Remplir une période")
+                }
             }
-            Spacer(Modifier.width(8.dp))
+        } else {
+            SelectionBar(
+                count = selected.size,
+                onAllMonth = { selected = selected + monthDays.map { it.toEpochDay() } },
+                onWeekends = {
+                    selected = selected + monthDays.filter {
+                        it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY
+                    }.map { it.toEpochDay() }
+                },
+                onWeekdays = {
+                    selected = selected + monthDays.filter {
+                        it.dayOfWeek != DayOfWeek.SATURDAY && it.dayOfWeek != DayOfWeek.SUNDAY
+                    }.map { it.toEpochDay() }
+                },
+                onClear = { selected = emptySet() },
+                onCancel = { exitSelection() },
+                onAssign = { assigning = true },
+            )
         }
 
         val doctorsById = remember(snap.doctors) { snap.doctors.associateBy { it.id } }
@@ -121,14 +165,21 @@ fun PlanningScreen(
             verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.weight(1f),
         ) {
-            items((1..month.lengthOfMonth()).map { month.atDay(it) }, key = { it.toEpochDay() }) { date ->
+            items(monthDays, key = { it.toEpochDay() }) { date ->
                 DayRow(
                     date = date,
                     isToday = date == today,
                     shifts = Planner.shiftsOn(snap.shifts, date),
                     carried = Planner.carriedInto(snap.shifts, date, zone),
                     doctors = doctorsById,
-                    onClick = { editingDay = date },
+                    selectMode = selectMode,
+                    selected = date.toEpochDay() in selected,
+                    onClick = { if (selectMode) toggle(date) else editingDay = date },
+                    onLongClick = {
+                        // Appui long : entre en mode sélection avec ce jour coché
+                        if (!selectMode) selectMode = true
+                        toggle(date)
+                    },
                 )
             }
         }
@@ -142,6 +193,26 @@ fun PlanningScreen(
             onSave = { newShifts ->
                 onEdit { s -> s.copy(shifts = Planner.replaceDay(s.shifts, date, newShifts)) }
                 editingDay = null
+            },
+        )
+    }
+    if (assigning && selected.isNotEmpty()) {
+        val dates = selected.map { LocalDate.ofEpochDay(it) }.toSortedSet()
+        AssignDialog(
+            snap = snap,
+            dates = dates,
+            onDismiss = { assigning = false },
+            onApply = { time, doctorId ->
+                onEdit { s ->
+                    s.copy(shifts = Planner.assignDates(s.shifts, dates, time, doctorId) { UUID.randomUUID().toString() })
+                }
+                assigning = false
+                exitSelection()
+            },
+            onClearDays = {
+                onEdit { s -> s.copy(shifts = Planner.clearDates(s.shifts, dates)) }
+                assigning = false
+                exitSelection()
             },
         )
     }
@@ -221,25 +292,73 @@ private fun StatusCard(
 }
 
 @Composable
+private fun SelectionBar(
+    count: Int,
+    onAllMonth: () -> Unit,
+    onWeekends: () -> Unit,
+    onWeekdays: () -> Unit,
+    onClear: () -> Unit,
+    onCancel: () -> Unit,
+    onAssign: () -> Unit,
+) {
+    Card(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (count == 0) "Touchez les jours à choisir" else "$count jour(s) sélectionné(s)",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f).padding(start = 8.dp),
+                )
+                TextButton(onClick = onCancel) { Text("Annuler") }
+                Button(onClick = onAssign, enabled = count > 0) { Text("Assigner…") }
+            }
+            Row {
+                TextButton(onClick = onAllMonth, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Tout le mois") }
+                TextButton(onClick = onWeekdays, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Lun–ven") }
+                TextButton(onClick = onWeekends, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Week-ends") }
+                TextButton(onClick = onClear, enabled = count > 0, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Vider") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun DayRow(
     date: LocalDate,
     isToday: Boolean,
     shifts: List<Shift>,
     carried: Shift?,
     doctors: Map<String, Doctor>,
+    selectMode: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
 ) {
     val weekend = date.dayOfWeek == DayOfWeek.SATURDAY || date.dayOfWeek == DayOfWeek.SUNDAY
     Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        border = if (isToday) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        border = when {
+            selected -> BorderStroke(3.dp, MaterialTheme.colorScheme.primary)
+            isToday -> BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+            else -> null
+        },
         colors = CardDefaults.cardColors(
-            containerColor = if (weekend) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-            else MaterialTheme.colorScheme.surfaceContainerLow
+            containerColor = when {
+                selected -> MaterialTheme.colorScheme.primaryContainer
+                weekend -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                else -> MaterialTheme.colorScheme.surfaceContainerLow
+            }
         ),
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (selectMode) {
+                Checkbox(checked = selected, onCheckedChange = null)
+                Spacer(Modifier.width(8.dp))
+            }
             Column(Modifier.width(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(date.weekdayShort(), style = MaterialTheme.typography.labelMedium)
                 Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -408,5 +527,47 @@ private fun FillPeriodDialog(
         }
         2 -> DateDialog(to, { pick = 0 }) { to = it; pick = 0 }
         3 -> TimeDialog("Heure du changement", time, { pick = 0 }) { time = it; pick = 0 }
+    }
+}
+
+@Composable
+private fun AssignDialog(
+    snap: Snapshot,
+    dates: Set<LocalDate>,
+    onDismiss: () -> Unit,
+    onApply: (time: LocalTime, doctorId: String?) -> Unit,
+    onClearDays: () -> Unit,
+) {
+    var doctorId by remember { mutableStateOf(snap.doctors.firstOrNull()?.id) }
+    var time by remember { mutableStateOf(snap.settings.defaultTime) }
+    var pickTime by remember { mutableStateOf(false) }
+    val shown = dates.take(8).joinToString(", ") { it.shortLabel() }
+    val more = dates.size - 8
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Assigner ${dates.size} jour(s)") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    shown + if (more > 0) " … (+$more)" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                LabeledRow("Médecin") { DoctorPicker(snap.doctors, doctorId, { doctorId = it }, Modifier.weight(1f)) }
+                LabeledRow("Heure") { OutlinedButton(onClick = { pickTime = true }) { Text(time.hhmm()) } }
+                Text(
+                    "Remplace ce qui existe déjà sur ces jours : un seul changement par jour, à cette heure.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = onClearDays) {
+                    Text("Plutôt vider ces jours", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = { Button(onClick = { onApply(time, doctorId) }) { Text("Appliquer") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+    if (pickTime) {
+        TimeDialog("Heure du changement", time, { pickTime = false }) { time = it; pickTime = false }
     }
 }
