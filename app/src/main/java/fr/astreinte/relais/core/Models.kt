@@ -15,9 +15,14 @@ data class Shift(val id: String, val date: LocalDate, val time: LocalTime, val d
 /** Créneau type de la journée : heure de changement, intitulé, et cible appliquée par défaut (ou null). */
 data class Slot(val time: LocalTime, val label: String, val defaultTargetId: String?)
 
-/** Le standard qui fait sonner tous les DECT : toujours présent, utilisé par défaut à 9h et 14h. */
+/**
+ * Le standard qui fait sonner tous les DECT : toujours présent, utilisé par défaut à 9h et 14h.
+ * Son numéro est volontairement ABSENT du code (dépôt public) : à saisir une fois sur le téléphone
+ * relais (onglet Médecins, fiche « Standard »). Les téléphones de consultation le reçoivent par synchro.
+ * Tant qu'il est vide, la fiche est signalée « numéro invalide » et aucun renvoi ne part vers le standard.
+ */
 const val STANDARD_ID = "standard"
-val STANDARD_DOCTOR = Doctor(STANDARD_ID, "Standard 8311", "0100000000")
+val STANDARD_DOCTOR = Doctor(STANDARD_ID, "Standard 8311", "")
 
 val DEFAULT_SLOTS: List<Slot> = listOf(
     Slot(LocalTime.of(9, 0), "Début de service", STANDARD_ID),

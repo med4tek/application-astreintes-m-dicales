@@ -48,8 +48,10 @@ class CodesTest {
         assertNull(Codes.forDoctor(Doctor("2", "Dr Pasbon", "pas un numero")))
     }
 
-    @Test fun `le standard par defaut est bien le 8311`() {
-        assertEquals("**21*0100000000#", Codes.forDoctor(STANDARD_DOCTOR))
+    @Test fun `le standard n'a aucun numero par defaut et n'envoie donc aucun renvoi tant qu'il n'est pas saisi`() {
+        assertEquals("", STANDARD_DOCTOR.phone)
+        assertNull(Codes.forDoctor(STANDARD_DOCTOR))
+        assertEquals("**21*0123456789#", Codes.forDoctor(STANDARD_DOCTOR.copy(phone = "01 23 45 67 89")))
     }
 
     @Test fun `compare deux numeros quel que soit le format`() {

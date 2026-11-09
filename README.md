@@ -6,7 +6,7 @@ Application Android personnelle (hors Play Store) qui change toute seule le **re
 
 ## Utilisation
 
-1. **Médecins** : ajoutez chaque médecin avec son numéro. Le **Standard 8311** (`0100000000`) existe d'office : vous pouvez changer son numéro (jour férié, etc.).
+1. **Médecins** : ajoutez chaque médecin avec son numéro. La fiche **Standard** existe d'office (utilisée par défaut à 9h et 14h) mais **sans numéro** : saisissez-le une fois sur le téléphone relais (onglet Médecins → Standard). Les téléphones de consultation le reçoivent par synchronisation. Vous pouvez le changer ensuite (jour férié, etc.).
 2. **Planning** : une grille, une ligne par jour, une colonne par créneau de la journée (par défaut **9h, 12h, 14h, 17h, 18h**).
    - **9h et 14h** : standard par défaut, sans rien saisir. Pour un jour particulier (férié…), touchez la case et choisissez autre chose.
    - **12h, 17h, 18h** : touchez la case, choisissez le médecin. L'astreinte de 18h dure jusqu'au lendemain 9h, où le standard reprend tout seul.
