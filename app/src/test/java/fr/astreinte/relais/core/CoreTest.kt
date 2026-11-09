@@ -202,7 +202,7 @@ class SnapshotJsonTest {
                 smsEnabled = true, smsPin = "4321", smsExtraNumbers = "06 11 22 33 44",
                 smsAllowDoctors = false, smsReply = true,
             ),
-            state = ApplyState("**21*0612345678#", false, 1234L, "oups \"guillemets\"", 2),
+            state = ApplyState("**21*0612345678#", false, 1234L, "oups \"guillemets\"", 2, lastSmsAt = 55L, lastSmsWasCommand = true),
             log = listOf(LogEntry(99L, "alarme", "##21#", true, "ok\nligne 2")),
         )
         assertEquals(snap, SnapshotJson.fromJson(SnapshotJson.toJson(snap)))

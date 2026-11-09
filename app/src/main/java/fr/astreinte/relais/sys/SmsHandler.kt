@@ -32,11 +32,20 @@ object SmsHandler {
     fun handle(context: Context, sender: String, body: String, onDone: () -> Unit) {
         val app = context.applicationContext
         Store.init(app)
+        val envelope = SmsCommands.parseEnvelope(body)
+        // Témoin de réception (date seulement) : permet de vérifier que les SMS arrivent bien jusqu'à l'app
+        Store.update { s ->
+            s.copy(state = s.state.copy(lastSmsAt = System.currentTimeMillis(), lastSmsWasCommand = envelope != SmsParse.NotCommand))
+        }
         val snap = Store.snapshot.value
         val st = snap.settings
-        if (!st.smsEnabled || st.smsPin.length < MIN_PIN) return onDone()
+        if (!st.smsEnabled) return onDone()
+        if (st.smsPin.length < MIN_PIN) {
+            if (envelope != SmsParse.NotCommand) log(sender, false, "Commande reçue mais ignorée : aucun PIN (4 caractères minimum) défini dans les réglages")
+            return onDone()
+        }
 
-        when (val env = SmsCommands.parseEnvelope(body)) {
+        when (val env = envelope) {
             SmsParse.NotCommand -> onDone()
             is SmsParse.Malformed -> {
                 if (isAllowed(sender, snap)) {

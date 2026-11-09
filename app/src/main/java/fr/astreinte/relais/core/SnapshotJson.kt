@@ -57,6 +57,8 @@ object SnapshotJson {
                 .put("lastAt", s.state.lastAt)
                 .put("lastMessage", s.state.lastMessage)
                 .put("attempts", s.state.attempts)
+                .put("lastSmsAt", s.state.lastSmsAt)
+                .put("lastSmsWasCommand", s.state.lastSmsWasCommand)
         )
         put("log", JSONArray().apply {
             s.log.forEach {
@@ -114,6 +116,8 @@ object SnapshotJson {
                 lastAt = o.optLong("lastAt", 0L),
                 lastMessage = o.optString("lastMessage", ""),
                 attempts = o.optInt("attempts", 0),
+                lastSmsAt = o.optLong("lastSmsAt", 0L),
+                lastSmsWasCommand = o.optBoolean("lastSmsWasCommand", false),
             )
         } ?: ApplyState()
         val log = root.optJSONArray("log").toList { o ->

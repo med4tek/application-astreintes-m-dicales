@@ -2,7 +2,6 @@ package fr.astreinte.relais.sys
 
 import android.content.Context
 import android.util.Log
-import fr.astreinte.relais.core.ApplyState
 import fr.astreinte.relais.core.Codes
 import fr.astreinte.relais.core.LogEntry
 import fr.astreinte.relais.core.Planner
@@ -167,7 +166,7 @@ object Relay {
         val now = System.currentTimeMillis()
         Store.update { s ->
             s.copy(
-                state = ApplyState(command, ok, now, message, attempts),
+                state = s.state.copy(lastCommand = command, lastOk = ok, lastAt = now, lastMessage = message, attempts = attempts),
                 log = (listOf(LogEntry(now, trigger.label, command, ok, message)) + s.log).take(100),
             )
         }

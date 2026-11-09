@@ -48,8 +48,16 @@ import fr.astreinte.relais.core.DEFAULT_SLOTS
 import fr.astreinte.relais.core.STANDARD_ID
 import fr.astreinte.relais.core.Slot
 import fr.astreinte.relais.core.Snapshot
+import fr.astreinte.relais.core.SmsAction
+import fr.astreinte.relais.core.SmsCommands
+import fr.astreinte.relais.core.SmsParse
 import fr.astreinte.relais.sys.Perms
+import fr.astreinte.relais.sys.SmsHandler
+import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.time.LocalTime
+import java.util.Date
+import java.util.Locale
 
 private const val MAX_SLOTS = 6
 
@@ -241,6 +249,44 @@ fun SmsSection(
         Text("Permission d'envoi de SMS manquante : aucune réponse ne partira.", color = MaterialTheme.colorScheme.error)
     }
 
+    // ------------------------------------------------------------------ diagnostic
+    var testText by remember { mutableStateOf("") }
+    var testResult by remember { mutableStateOf<String?>(null) }
+    val fmt = remember { SimpleDateFormat("dd/MM HH:mm", Locale.FRANCE) }
+    val allowed = SmsHandler.allowedNumbers(snap)
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Diagnostic", fontWeight = FontWeight.Bold)
+            Text(
+                if (snap.state.lastSmsAt == 0L) "Aucun SMS n'a encore été reçu par l'app depuis l'installation."
+                else "Dernier SMS vu par l'app : ${fmt.format(Date(snap.state.lastSmsAt))} (" +
+                    (if (snap.state.lastSmsWasCommand) "commande AST" else "autre SMS, ignoré") + ")",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text("Permission de lecture des SMS : " + if (receiveOk) "accordée" else "REFUSÉE", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "Numéros autorisés à commander : " + if (allowed.isEmpty()) "aucun (ajoutez-en ci-dessus)" else allowed.joinToString(", "),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = testText,
+                onValueChange = { testText = it; testResult = null },
+                label = { Text("Collez ici un SMS pour le simuler") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedButton(onClick = { testResult = simulate(snap, testText) }, enabled = testText.isNotBlank()) {
+                Text("Simuler (rien n'est modifié)")
+            }
+            testResult?.let { Text(it, fontWeight = FontWeight.Bold) }
+            Text(
+                "Si le dernier SMS vu ne change pas quand vous envoyez une commande, le SMS n'arrive pas jusqu'à l'app : " +
+                    "permission refusée, ou message envoyé en « chat » (RCS) au lieu d'un vrai SMS.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+
     val example = snap.doctors.firstOrNull { it.id != STANDARD_ID }?.name?.split(' ')?.last() ?: "Martin"
     val hours = st.slots.sortedBy { it.time }
     val h1 = hours.getOrNull(1)?.time?.hour ?: 12
@@ -270,3 +316,18 @@ fun SmsSection(
 private fun Context.openAppInfo() {
     runCatching { startActivity(Perms.appDetailsIntent(this).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }
+
+/** Dit ce que l'app comprendrait d'un SMS, sans rien modifier (l'expéditeur n'est pas simulé). */
+private fun simulate(snap: Snapshot, text: String): String =
+    when (val env = SmsCommands.parseEnvelope(text)) {
+        SmsParse.NotCommand -> "Ce texte ne commence pas par « AST » : l'app l'ignorerait."
+        is SmsParse.Malformed -> env.why
+        is SmsParse.Command ->
+            if (env.pin != snap.settings.smsPin) {
+                "Le PIN du SMS est différent de celui des réglages : la commande serait refusée."
+            } else when (val a = SmsCommands.interpret(env.args, snap.doctors, snap.settings.slots, LocalDate.now())) {
+                is SmsAction.Error -> "Erreur : ${a.why}"
+                SmsAction.Query -> "Compris : demande d'état du renvoi."
+                is SmsAction.Edit -> "Compris : " + SmsCommands.describe(a.groups, snap.doctors)
+            }
+    }

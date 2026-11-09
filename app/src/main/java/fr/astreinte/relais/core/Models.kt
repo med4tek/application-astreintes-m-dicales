@@ -69,6 +69,9 @@ data class ApplyState(
     val lastMessage: String = "",
     /** Nombre d'échecs consécutifs dans la série d'essais en cours. */
     val attempts: Int = 0,
+    /** Dernier SMS vu par l'app (date seulement, jamais le contenu) : sert à diagnostiquer la réception. */
+    val lastSmsAt: Long = 0L,
+    val lastSmsWasCommand: Boolean = false,
 )
 
 data class LogEntry(
