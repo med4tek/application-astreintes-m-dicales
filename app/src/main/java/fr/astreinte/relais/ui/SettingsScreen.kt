@@ -174,6 +174,10 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
+            MessagesSection(snap, resumeTick, onEdit)
+
+            HorizontalDivider()
+
             // --- Outils ---
             Text("Outils de vérification", style = MaterialTheme.typography.titleMedium)
             Text(
