@@ -390,6 +390,40 @@ class SmsCommandsTest {
         assertEquals(SmsAction.Query, run("?"))
     }
 
+    @Test fun `consultation du planning`() {
+        assertEquals(SmsAction.Plan(listOf(d("2026-11-10"))), run("?", "demain"))
+        assertEquals(
+            SmsAction.Plan(listOf(d("2026-11-12"), d("2026-11-13"), d("2026-11-14"))),
+            run("?", "12/11-14/11")
+        )
+        assertEquals(SmsAction.Plan(listOf(d("2026-11-09"), d("2026-11-12"))), run("?", "12/11", "auj"))
+        assertEquals(7, (run("?", "semaine") as SmsAction.Plan).dates.size)
+        assertTrue((run("?", "01/11-30/11") as SmsAction.Error).why.contains("Maximum"))
+        assertTrue((run("?", "blabla") as SmsAction.Error).why.contains("blabla"))
+    }
+
+    @Test fun `texte de reponse du planning`() {
+        val snap = Snapshot(
+            doctors = listOf(STANDARD_DOCTOR, Doctor("m", "Dr Bruno", "1"), Doctor("s", "Dr Claire", "2")),
+            shifts = listOf(
+                Shift("1", d("2026-11-09"), t("12:00"), "m"),
+                Shift("2", d("2026-11-09"), t("18:00"), "m"),
+                Shift("3", d("2026-11-10"), t("12:00"), null),
+                Shift("4", d("2026-11-10"), t("18:00"), "s"),
+            ),
+            settings = Settings(enabled = true),
+        )
+        val text = SmsCommands.planText(snap, listOf(d("2026-11-09"), d("2026-11-10"), d("2026-11-11")), PARIS)
+        assertEquals(
+            "lun 09/11: 9h STD 12h Bruno 14h STD 17h STD 18h Bruno\n" +
+                "mar 10/11: 9h STD 12h OFF 14h STD 17h STD 18h Claire\n" +
+                // le 11/11 : rien de saisi, l'astreinte du 10 au soir court jusqu'à 9h puis standard
+                "mer 11/11: 9h STD 12h STD 14h STD 17h STD 18h STD",
+            text
+        )
+        assertTrue(SmsCommands.planText(snap.copy(settings = Settings(enabled = false)), listOf(d("2026-11-09")), PARIS).contains("désactivée"))
+    }
+
     @Test fun `erreurs claires`() {
         fun err(vararg a: String) = (run(*a) as SmsAction.Error).why
         assertTrue(err("12/11", "13=Martin").contains("Créneaux"))

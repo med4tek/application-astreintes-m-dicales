@@ -309,6 +309,10 @@ fun SmsSection(
             Text("efface la journée (retour au défaut) ; ${h2}=DEF n'efface qu'un créneau", style = MaterialTheme.typography.bodySmall)
             Text("AST PIN ?", fontFamily = code)
             Text("l'état actuel du renvoi (nécessite « Répondre par SMS »)", style = MaterialTheme.typography.bodySmall)
+            Text("AST PIN ? demain", fontFamily = code)
+            Text("le planning de ces jours en réponse (7 jours max)", style = MaterialTheme.typography.bodySmall)
+            Text("AST PIN ? 12/11-14/11", fontFamily = code)
+            Text("idem sur une période ; « ? semaine » = les 7 prochains jours", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -328,6 +332,8 @@ private fun simulate(snap: Snapshot, text: String): String =
             } else when (val a = SmsCommands.interpret(env.args, snap.doctors, snap.settings.slots, LocalDate.now())) {
                 is SmsAction.Error -> "Erreur : ${a.why}"
                 SmsAction.Query -> "Compris : demande d'état du renvoi."
+                is SmsAction.Plan -> "Réponse qui serait envoyée :\n" +
+                    SmsCommands.planText(snap, a.dates, java.time.ZoneId.systemDefault())
                 is SmsAction.Edit -> "Compris : " + SmsCommands.describe(a.groups, snap.doctors)
             }
     }

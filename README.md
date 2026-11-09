@@ -39,6 +39,14 @@ Un SMS n'est pris en compte que si l'expéditeur est **autorisé** (médecins en
 | `AST 1234 demain 9=STD 18=OFF` | `STD` = standard, `OFF` = aucun renvoi, `auj`/`demain` |
 | `AST 1234 12/11 RAZ` | efface la journée (retour aux valeurs par défaut) ; `12=DEF` n'efface qu'un créneau |
 | `AST 1234 ?` | répond avec l'état du renvoi |
+| `AST 1234 ? demain` | répond avec le planning de ces jours (7 max) ; accepte `12/11`, `12/11-14/11`, `12/11,14/11`, `semaine` |
+
+Exemple de réponse :
+```
+lun 09/11: 9h STD 12h Bruno 14h STD 17h STD 18h Bruno
+mar 10/11: 9h STD 12h Alice 14h STD 17h STD 18h Alice
+```
+(`STD` = standard, `OFF` = aucun renvoi ; pour chaque créneau, la personne réellement en vigueur à cette heure.) Les consultations exigent « Répondre par SMS » dans les réglages.
 
 Le nom du médecin est reconnu sans titre ni accents (« martin » → Dr Martin) ; un nom ambigu est refusé. Si la modification touche l'astreinte en cours, le renvoi est appliqué immédiatement.
 **Attention RCS** : la commande doit partir en **vrai SMS**. Entre deux téléphones compatibles, Google Messages envoie en « chat » (RCS) sans prévenir, et l'app ne reçoit alors rien. Le message doit s'afficher « SMS » et non « Chat » ; sinon désactivez les fonctionnalités de chat. Le diagnostic des Réglages (date du dernier SMS vu) permet de le vérifier.

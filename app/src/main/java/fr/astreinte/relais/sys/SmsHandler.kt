@@ -80,9 +80,12 @@ object SmsHandler {
                 onDone()
             }
             SmsAction.Query -> {
-                val text = statusText(snap, zone)
-                log(sender, true, "Demande d'état")
-                reply(app, snap.settings, sender, text)
+                answerQuery(app, snap, sender, "Demande d'état", statusText(snap, zone))
+                onDone()
+            }
+            is SmsAction.Plan -> {
+                val text = SmsCommands.planText(snap, action.dates, zone)
+                answerQuery(app, snap, sender, "Consultation du planning (${action.dates.size} jour(s))", text)
                 onDone()
             }
             is SmsAction.Edit -> {
@@ -96,6 +99,19 @@ object SmsHandler {
                 // Si la modification touche l'astreinte en cours, le renvoi est appliqué tout de suite
                 Relay.reconcile(app, Relay.Trigger.EDIT, onDone = onDone)
             }
+        }
+    }
+
+    /** Une consultation n'a de sens que si la réponse par SMS est possible : sinon on le dit dans le journal. */
+    private fun answerQuery(app: Context, snap: Snapshot, sender: String, what: String, text: String) {
+        val st = snap.settings
+        if (!st.smsReply) {
+            log(sender, false, "$what reçue mais « Répondre par SMS » est désactivé dans les réglages")
+        } else if (!Perms.sendSms(app)) {
+            log(sender, false, "$what reçue mais la permission d'envoi de SMS est refusée")
+        } else {
+            log(sender, true, what)
+            reply(app, st, sender, text)
         }
     }
 
@@ -137,7 +153,7 @@ object SmsHandler {
         if (!st.smsReply || !Perms.sendSms(app) || to.isBlank()) return
         try {
             val sms = app.getSystemService(SmsManager::class.java)
-            val trimmed = text.take(300)
+            val trimmed = text.take(600)
             sms.sendMultipartTextMessage(to, null, sms.divideMessage(trimmed), null, null)
         } catch (e: Exception) {
             Log.w(TAG, "Réponse SMS impossible", e)

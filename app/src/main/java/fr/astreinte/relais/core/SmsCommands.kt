@@ -20,7 +20,11 @@ data class EditGroup(
 )
 
 sealed interface SmsAction {
+    /** « ? » seul : état actuel du renvoi. */
     data object Query : SmsAction
+
+    /** « ? <jours> » : consultation du planning de ces jours (triés). */
+    data class Plan(val dates: List<LocalDate>) : SmsAction
     data class Edit(val groups: List<EditGroup>) : SmsAction
     data class Error(val why: String) : SmsAction
 }
@@ -37,11 +41,14 @@ sealed interface SmsAction {
  *     AST 1234 12/11 RAZ                  efface la saisie du jour (retour aux valeurs par défaut)
  *     AST 1234 12/11 12=DEF               efface seulement ce créneau
  *     AST 1234 ?                          répond avec l'état actuel
+ *     AST 1234 ? demain                   répond avec le planning de ces jours (max 7)
+ *     AST 1234 ? 12/11-14/11              idem sur une période ; "semaine" = les 7 prochains jours
  */
 object SmsCommands {
     private val DATE = Regex("^(\\d{1,2})[/.](\\d{1,2})(?:[/.](\\d{2}|\\d{4}))?$")
     private val SLOT_REF = Regex("^(\\d{1,2})(?:[h:](\\d{2})?)?$", RegexOption.IGNORE_CASE)
     private const val MAX_RANGE_DAYS = 62
+    const val MAX_QUERY_DAYS = 7
 
     fun parseEnvelope(body: String): SmsParse {
         val tokens = body.trim().split(Regex("\\s+"))
@@ -51,7 +58,7 @@ object SmsCommands {
     }
 
     fun interpret(args: List<String>, doctors: List<Doctor>, slots: List<Slot>, today: LocalDate): SmsAction {
-        if (args.size == 1 && args[0] == "?") return SmsAction.Query
+        if (args[0] == "?") return interpretQuery(args.drop(1), today)
 
         val groups = ArrayList<EditGroup>()
         var dates = LinkedHashSet<LocalDate>()
@@ -107,6 +114,51 @@ object SmsCommands {
         flush()?.let { return SmsAction.Error(it) }
         if (groups.isEmpty()) return SmsAction.Error("Aucune date indiquée.")
         return SmsAction.Edit(groups)
+    }
+
+    private fun interpretQuery(rest: List<String>, today: LocalDate): SmsAction {
+        if (rest.isEmpty()) return SmsAction.Query
+        val dates = java.util.TreeSet<LocalDate>()
+        for (token in rest) {
+            val low = ascii(token).lowercase(Locale.ROOT)
+            if (low == "sem" || low == "semaine") {
+                for (i in 0 until MAX_QUERY_DAYS) dates += today.plusDays(i.toLong())
+                continue
+            }
+            when (val p = parseDates(token, today)) {
+                is DateParse.Ok -> dates.addAll(p.dates)
+                is DateParse.Bad -> return SmsAction.Error(p.why)
+                DateParse.NotADate -> return SmsAction.Error("Je ne comprends pas « $token ».")
+            }
+        }
+        if (dates.size > MAX_QUERY_DAYS) return SmsAction.Error("Maximum $MAX_QUERY_DAYS jours par demande.")
+        return SmsAction.Plan(dates.toList())
+    }
+
+    /**
+     * Texte de réponse : pour chaque jour, qui reçoit les appels à chaque créneau
+     * (valeur réellement en vigueur à l'heure du créneau, défauts et héritage compris).
+     * Ex. « lun 09/11: 9h STD 12h Bruno 14h STD 17h STD 18h Bruno ».
+     */
+    fun planText(snap: Snapshot, dates: List<LocalDate>, zone: java.time.ZoneId): String {
+        if (dates.isEmpty()) return "Aucun jour."
+        val slots = snap.settings.slots.sortedBy { it.time }
+        val timeline = Planner.effective(snap.shifts, slots, dates.min().minusDays(8), dates.max())
+        fun who(id: String?): String = when {
+            id == null -> "OFF"
+            id == STANDARD_ID -> "STD"
+            else -> snap.doctor(id)?.name?.replace(Regex("^(Dr\\.?|Docteur|Pr\\.?)\\s+", RegexOption.IGNORE_CASE), "") ?: "?"
+        }
+        val lines = dates.map { date ->
+            val day = date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.FRENCH).trimEnd('.')
+            val cells = slots.joinToString(" ") { slot ->
+                val at = java.time.ZonedDateTime.of(date, slot.time, zone).toInstant()
+                val shift = Planner.current(timeline, at, zone)
+                "${shortHour(slot.time)} ${if (shift == null) "-" else who(shift.doctorId)}"
+            }
+            "$day ${fmt(date)}: $cells"
+        }
+        return (lines + if (!snap.settings.enabled) listOf("(bascule auto désactivée)") else emptyList()).joinToString("\n")
     }
 
     fun apply(shifts: List<Shift>, groups: List<EditGroup>, newId: () -> String): List<Shift> {
