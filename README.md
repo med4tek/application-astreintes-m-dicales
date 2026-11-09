@@ -101,6 +101,10 @@ Le relais fait foi. Sur le téléphone de consultation, onglet **Synchro** :
 - Nécessite la bascule automatique active et la permission d'envoi de SMS. Le journal indique chaque message (ou la raison de son non-envoi).
 - Évitez accents et symboles spéciaux : un SMS en caractères spéciaux est découpé en messages plus courts.
 
+## Documentation
+
+- [Procédure qualité (Word)](docs/Procedure_Astreinte_Relais.docx) : principe, fonctionnement, captures d'écran, traçabilité, mode dégradé, risques, annexe technique. Version publique : les numéros de téléphone et informations internes de l'établissement en sont retirés.
+
 ## Installation (Android 15)
 
 1. Copiez `AstreinteRelais.apk` sur le téléphone et ouvrez-le (autoriser l'installation depuis cette source).
