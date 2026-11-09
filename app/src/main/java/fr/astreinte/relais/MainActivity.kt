@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -26,6 +27,7 @@ import fr.astreinte.relais.data.Store
 import fr.astreinte.relais.sys.Relay
 import fr.astreinte.relais.ui.AppTheme
 import fr.astreinte.relais.ui.DoctorsScreen
+import fr.astreinte.relais.ui.ImportScreen
 import fr.astreinte.relais.ui.PlanningScreen
 import fr.astreinte.relais.ui.SettingsScreen
 
@@ -48,6 +50,7 @@ class MainActivity : ComponentActivity() {
                             listOf(
                                 "Planning" to Icons.Filled.DateRange,
                                 "Médecins" to Icons.Filled.Person,
+                                "Import" to Icons.Filled.Share,
                                 "Réglages" to Icons.Filled.Settings,
                             ).forEachIndexed { i, (label, icon) ->
                                 NavigationBarItem(
@@ -62,8 +65,9 @@ class MainActivity : ComponentActivity() {
                 ) { padding ->
                     val m = Modifier.padding(padding)
                     when (tab) {
-                        0 -> PlanningScreen(snap, ::edit, onGoToSettings = { tab = 2 }, modifier = m)
+                        0 -> PlanningScreen(snap, ::edit, onGoToSettings = { tab = 3 }, modifier = m)
                         1 -> DoctorsScreen(snap, ::edit, modifier = m)
+                        2 -> ImportScreen(snap, ::edit, modifier = m)
                         else -> SettingsScreen(snap, resumeTick, ::edit, modifier = m)
                     }
                 }

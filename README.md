@@ -2,14 +2,47 @@
 
 Application Android personnelle (hors Play Store) qui change toute seule le **renvoi d'appel** du téléphone d'astreinte médicale selon un planning mois par mois.
 
-À l'heure de chaque relève, l'app envoie à l'opérateur le code `**21*NUMÉRO#` (sans ouvrir le composeur). Pour désactiver, elle envoie `##21#`.
+À l'heure de chaque changement, le téléphone compose le code `**21*NUMÉRO#` (comme le composeur). Pour désactiver, `##21#`.
 
 ## Utilisation
 
-1. **Médecins** : ajoutez chaque médecin avec son numéro de portable.
-2. **Planning** : touchez un jour, choisissez le médecin et l'heure de relève. « Ajouter un changement » permet plusieurs relèves dans la même journée. « Sélectionner des jours » (ou appui long sur un jour) permet de cocher plusieurs jours, même non consécutifs (raccourcis : Tout le mois, Lun–ven, Week-ends), puis « Assigner… » pose le même médecin à la même heure sur tous. « Remplir une période » fait de même du jour A au jour B.
-   Un changement reste valable **jusqu'au suivant** : un jour sans entrée garde le médecin de la veille (affiché en gris, « suite »).
-3. **Réglages** : accordez les autorisations, **testez** avec « Vérifier le renvoi actuellement en place » (`*#21#`), puis activez la **Bascule automatique**.
+1. **Médecins** : ajoutez chaque médecin avec son numéro. Le **Standard 8311** (`0100000000`) existe d'office : vous pouvez changer son numéro (jour férié, etc.).
+2. **Planning** : une grille, une ligne par jour, une colonne par créneau de la journée (par défaut **9h, 12h, 14h, 17h, 18h**).
+   - **9h et 14h** : standard par défaut, sans rien saisir. Pour un jour particulier (férié…), touchez la case et choisissez autre chose.
+   - **12h, 17h, 18h** : touchez la case, choisissez le médecin. L'astreinte de 18h dure jusqu'au lendemain 9h, où le standard reprend tout seul.
+   - Touchez le **numéro du jour** pour éditer toute la journée (et ajouter un changement à une heure libre).
+   - Fond coloré = saisi à la main ; fond gris = valeur par défaut ; texte pâle = hérité du créneau précédent.
+   - **Sélectionner plusieurs jours** (ou appui long) : cochez des jours (raccourcis Tout le mois, Lun–ven, Week-ends, Période…), puis **Assigner…** : un sélecteur par créneau, « Ne pas modifier » par défaut.
+   - Les heures et intitulés des créneaux se changent dans **Réglages → Horaires de la journée**.
+3. **Import** : remplir un mois depuis une photo (voir ci-dessous).
+4. **Réglages** : accordez les autorisations, **testez** avec « Vérifier le renvoi actuellement en place » (`*#21#`), puis activez la **Bascule automatique**.
+
+## Import depuis une photo de planning
+
+1. Onglet **Import** : choisissez le mois, ajoutez au besoin des précisions (« la colonne Garde = 18:00 »), puis **Copier** ou **Partager…** la consigne.
+2. Envoyez la consigne **avec la photo** à un assistant IA (Claude, ChatGPT…). Il répond par un bloc JSON.
+3. Collez la réponse dans l'app, **Analyser** : un aperçu jour par jour s'affiche. Les noms non reconnus se rattachent à un médecin de votre liste (ou s'ignorent).
+4. **Appliquer** : seuls les créneaux présents dans la réponse sont remplacés. Relisez toujours le résultat dans le Planning : un LLM peut mal lire une photo.
+
+## Commande par SMS (optionnelle, désactivée par défaut)
+
+À activer dans **Réglages → Commande par SMS** : un code PIN, la permission SMS, et éventuellement la réponse par SMS.
+Un SMS n'est pris en compte que si l'expéditeur est **autorisé** (médecins enregistrés et/ou numéros ajoutés) **et** que le PIN est correct. Les autres SMS sont ignorés ; les refus apparaissent dans le journal.
+
+| SMS | Effet |
+|---|---|
+| `AST 1234 12/11 18=Martin` | 18h du 12/11 : Martin |
+| `AST 1234 12/11 12=Dupont 18=Martin` | plusieurs créneaux |
+| `AST 1234 12/11-15/11 18=Martin` | une période (bornes incluses) |
+| `AST 1234 12/11,14/11 18=Martin` | plusieurs jours |
+| `AST 1234 12/11 18=Martin 13/11 18=Durand` | plusieurs groupes |
+| `AST 1234 demain 9=STD 18=OFF` | `STD` = standard, `OFF` = aucun renvoi, `auj`/`demain` |
+| `AST 1234 12/11 RAZ` | efface la journée (retour aux valeurs par défaut) ; `12=DEF` n'efface qu'un créneau |
+| `AST 1234 ?` | répond avec l'état du renvoi |
+
+Le nom du médecin est reconnu sans titre ni accents (« martin » → Dr Martin) ; un nom ambigu est refusé. Si la modification touche l'astreinte en cours, le renvoi est appliqué immédiatement.
+**Sécurité** : le PIN voyage en clair par SMS et un numéro d'expéditeur peut être usurpé : choisissez un PIN que vous n'utilisez nulle part ailleurs.
+Android 13+ peut bloquer la permission SMS d'une app installée à la main : infos de l'app → ⋮ → « Autoriser les paramètres restreints ».
 
 ## Installation (Android 15)
 

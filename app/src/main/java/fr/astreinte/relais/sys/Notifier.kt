@@ -20,6 +20,7 @@ object Notifier {
     private const val CH_ALERT = "relay_alert"
     private const val ID_INFO = 10
     private const val ID_ALERT = 11
+    private const val ID_SMS = 12
 
     fun createChannels(context: Context) {
         if (Build.VERSION.SDK_INT < 26) return
@@ -56,6 +57,10 @@ object Notifier {
             ongoing = final
         )
     }
+
+    /** Information ponctuelle (ex. planning modifié par SMS) ; n'efface pas une alerte d'échec. */
+    fun info(context: Context, title: String, text: String) =
+        post(context, ID_SMS, CH_INFO, title, text, openApp(context), null)
 
     fun cancelAlert(context: Context) = NotificationManagerCompat.from(context).cancel(ID_ALERT)
 

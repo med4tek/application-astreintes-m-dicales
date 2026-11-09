@@ -1,8 +1,10 @@
 package fr.astreinte.relais.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -25,7 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,16 +57,38 @@ fun LocalDate.shortLabel(): String =
 
 fun LocalTime.hhmm(): String = "%02d:%02d".format(hour, minute)
 
-/** Sélecteur de médecin (ou "aucun renvoi"). */
+/** "9h", "12h", "14h30" : compact pour les en-têtes de colonnes. */
+fun LocalTime.shortHour(): String = if (minute == 0) "${hour}h" else "%dh%02d".format(hour, minute)
+
+/** Valeurs spéciales du sélecteur (en plus d'un identifiant de médecin ou de null = aucun renvoi). */
+const val KEY_DEFAULT = "\u0000default"
+const val KEY_KEEP = "\u0000keep"
+
+/**
+ * Sélecteur de cible du renvoi. [value] : un identifiant de médecin, `null` (= aucun renvoi),
+ * [KEY_DEFAULT] ou [KEY_KEEP]. [onChange] reçoit la même convention.
+ *
+ * @param keepLabel  si non nul, propose « ne pas modifier » (édition en lot)
+ * @param defaultLabel si non nul, propose « valeur par défaut / pas de changement »
+ * @param allowOff   propose « Aucun renvoi » (désactive le renvoi)
+ */
 @Composable
-fun DoctorPicker(
+fun TargetPicker(
     doctors: List<Doctor>,
-    selectedId: String?,
-    onSelect: (String?) -> Unit,
+    value: String?,
+    onChange: (String?) -> Unit,
     modifier: Modifier = Modifier,
+    keepLabel: String? = null,
+    defaultLabel: String? = null,
+    allowOff: Boolean = true,
 ) {
     var open by remember { mutableStateOf(false) }
-    val label = doctors.firstOrNull { it.id == selectedId }?.name ?: "Désactiver le renvoi"
+    val label = when (value) {
+        KEY_KEEP -> keepLabel ?: "—"
+        KEY_DEFAULT -> defaultLabel ?: "—"
+        null -> "Aucun renvoi"
+        else -> doctors.firstOrNull { it.id == value }?.name ?: "(médecin supprimé)"
+    }
     Box(modifier) {
         OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
             Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
@@ -72,17 +96,19 @@ fun DoctorPicker(
             Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            doctors.forEach { d ->
-                DropdownMenuItem(
-                    text = { Text(d.name) },
-                    onClick = { onSelect(d.id); open = false },
-                )
+            if (keepLabel != null) {
+                DropdownMenuItem(text = { Text(keepLabel) }, onClick = { onChange(KEY_KEEP); open = false })
             }
-            if (doctors.isNotEmpty()) HorizontalDivider()
-            DropdownMenuItem(
-                text = { Text("Désactiver le renvoi") },
-                onClick = { onSelect(null); open = false },
-            )
+            if (defaultLabel != null) {
+                DropdownMenuItem(text = { Text(defaultLabel) }, onClick = { onChange(KEY_DEFAULT); open = false })
+            }
+            doctors.forEach { d ->
+                DropdownMenuItem(text = { Text(d.name) }, onClick = { onChange(d.id); open = false })
+            }
+            if (allowOff) {
+                HorizontalDivider()
+                DropdownMenuItem(text = { Text("Aucun renvoi") }, onClick = { onChange(null); open = false })
+            }
         }
     }
 }
@@ -109,7 +135,12 @@ fun TimeDialog(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DateDialog(initial: LocalDate, onDismiss: () -> Unit, onConfirm: (LocalDate) -> Unit) {
+fun DateDialog(
+    initial: LocalDate,
+    onDismiss: () -> Unit,
+    onConfirm: (LocalDate) -> Unit,
+    title: String = "",
+) {
     val state = rememberDatePickerState(
         initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
     )
@@ -123,13 +154,18 @@ fun DateDialog(initial: LocalDate, onDismiss: () -> Unit, onConfirm: (LocalDate)
             }) { Text("OK") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
-    ) { DatePicker(state = state) }
+    ) {
+        DatePicker(
+            state = state,
+            title = { if (title.isNotEmpty()) Text(title, Modifier.padding(start = 24.dp, top = 16.dp)) },
+        )
+    }
 }
 
 /** Petite ligne "libellé ........ contrôle" réutilisée dans les dialogues. */
 @Composable
 fun LabeledRow(label: String, content: @Composable () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.width(76.dp))
         content()
     }

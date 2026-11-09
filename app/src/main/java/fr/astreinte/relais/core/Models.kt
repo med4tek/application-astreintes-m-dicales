@@ -12,6 +12,30 @@ data class Doctor(val id: String, val name: String, val phone: String)
  */
 data class Shift(val id: String, val date: LocalDate, val time: LocalTime, val doctorId: String?)
 
+/** Créneau type de la journée : heure de changement, intitulé, et cible appliquée par défaut (ou null). */
+data class Slot(val time: LocalTime, val label: String, val defaultTargetId: String?)
+
+/** Le standard qui fait sonner tous les DECT : toujours présent, utilisé par défaut à 9h et 14h. */
+const val STANDARD_ID = "standard"
+val STANDARD_DOCTOR = Doctor(STANDARD_ID, "Standard 8311", "0100000000")
+
+val DEFAULT_SLOTS: List<Slot> = listOf(
+    Slot(LocalTime.of(9, 0), "Début de service", STANDARD_ID),
+    Slot(LocalTime.of(12, 0), "Midi", null),
+    Slot(LocalTime.of(14, 0), "Retour standard", STANDARD_ID),
+    Slot(LocalTime.of(17, 0), "Fin d'après-midi", null),
+    Slot(LocalTime.of(18, 0), "Astreinte", null),
+)
+
+/** Modification d'une case (jour × créneau) du planning. */
+sealed interface CellEdit {
+    /** Supprime la saisie : retour à la valeur par défaut du créneau (ou à "pas de changement"). */
+    data object Clear : CellEdit
+
+    /** Impose [doctorId] ; null = désactiver le renvoi. */
+    data class Set(val doctorId: String?) : CellEdit
+}
+
 data class Settings(
     /** Interrupteur général : tant qu'il est à false, l'app n'envoie JAMAIS aucun code. */
     val enabled: Boolean = false,
@@ -25,6 +49,16 @@ data class Settings(
      * true : API USSD directe (lit la réponse, mais beaucoup de téléphones la refusent pour **21*).
      */
     val useDirectUssd: Boolean = false,
+    /** Découpage type de la journée (colonnes du planning). */
+    val slots: List<Slot> = DEFAULT_SLOTS,
+    /** Commande du planning par SMS (désactivée tant que non configurée). */
+    val smsEnabled: Boolean = false,
+    val smsPin: String = "",
+    /** Numéros autorisés en plus des médecins (séparés par virgule, espace ou retour ligne). */
+    val smsExtraNumbers: String = "",
+    val smsAllowDoctors: Boolean = true,
+    /** Répondre par SMS à l'expéditeur (nécessite la permission d'envoi de SMS). */
+    val smsReply: Boolean = false,
 )
 
 /** Dernier envoi tenté, pour savoir s'il faut renvoyer le code. */
@@ -46,7 +80,7 @@ data class LogEntry(
 )
 
 data class Snapshot(
-    val doctors: List<Doctor> = emptyList(),
+    val doctors: List<Doctor> = listOf(STANDARD_DOCTOR),
     val shifts: List<Shift> = emptyList(),
     val settings: Settings = Settings(),
     val state: ApplyState = ApplyState(),

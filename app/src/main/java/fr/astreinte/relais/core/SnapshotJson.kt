@@ -33,6 +33,21 @@ object SnapshotJson {
                 .put("defaultTime", s.settings.defaultTime.toString())
                 .put("subscriptionId", s.settings.subscriptionId)
                 .put("useDirectUssd", s.settings.useDirectUssd)
+                .put("slots", JSONArray().apply {
+                    s.settings.slots.forEach {
+                        put(
+                            JSONObject()
+                                .put("time", it.time.toString())
+                                .put("label", it.label)
+                                .put("default", it.defaultTargetId ?: JSONObject.NULL)
+                        )
+                    }
+                })
+                .put("smsEnabled", s.settings.smsEnabled)
+                .put("smsPin", s.settings.smsPin)
+                .put("smsExtraNumbers", s.settings.smsExtraNumbers)
+                .put("smsAllowDoctors", s.settings.smsAllowDoctors)
+                .put("smsReply", s.settings.smsReply)
         )
         put(
             "state",
@@ -59,9 +74,11 @@ object SnapshotJson {
 
     fun fromJson(text: String): Snapshot {
         val root = JSONObject(text)
-        val doctors = root.optJSONArray("doctors").toList { o ->
+        val stored = root.optJSONArray("doctors").toList { o ->
             Doctor(o.getString("id"), o.getString("name"), o.getString("phone"))
         }
+        // Le standard est toujours présent (migration des données d'une ancienne version comprise)
+        val doctors = if (stored.any { it.id == STANDARD_ID }) stored else listOf(STANDARD_DOCTOR) + stored
         val shifts = root.optJSONArray("shifts").toList { o ->
             Shift(
                 id = o.getString("id"),
@@ -76,6 +93,18 @@ object SnapshotJson {
                 defaultTime = o.optString("defaultTime", "08:00").let { LocalTime.parse(it) },
                 subscriptionId = o.optInt("subscriptionId", -1),
                 useDirectUssd = o.optBoolean("useDirectUssd", false),
+                slots = o.optJSONArray("slots")?.toList { so ->
+                    Slot(
+                        time = LocalTime.parse(so.getString("time")),
+                        label = so.optString("label", ""),
+                        defaultTargetId = if (so.isNull("default")) null else so.getString("default"),
+                    )
+                } ?: DEFAULT_SLOTS,
+                smsEnabled = o.optBoolean("smsEnabled", false),
+                smsPin = o.optString("smsPin", ""),
+                smsExtraNumbers = o.optString("smsExtraNumbers", ""),
+                smsAllowDoctors = o.optBoolean("smsAllowDoctors", true),
+                smsReply = o.optBoolean("smsReply", false),
             )
         } ?: Settings()
         val state = root.optJSONObject("state")?.let { o ->

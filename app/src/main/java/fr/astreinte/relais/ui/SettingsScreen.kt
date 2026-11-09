@@ -81,6 +81,7 @@ fun SettingsScreen(
     var queryResult by remember { mutableStateOf<String?>(null) }
     var queryRunning by remember { mutableStateOf(false) }
     var showDefaultTime by remember { mutableStateOf(false) }
+    var showSlots by remember { mutableStateOf(false) }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
@@ -137,8 +138,11 @@ fun SettingsScreen(
 
         // --- Préférences ---
         Text("Préférences", style = MaterialTheme.typography.titleMedium)
+        OutlinedButton(onClick = { showSlots = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("Horaires de la journée : " + snap.settings.slots.sortedBy { it.time }.joinToString(" ") { it.time.shortHour() })
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Heure de relève par défaut", Modifier.weight(1f))
+            Text("Heure par défaut d'un changement à heure libre", Modifier.weight(1f))
             OutlinedButton(onClick = { showDefaultTime = true }) { Text(snap.settings.defaultTime.hhmm()) }
         }
         val sims = remember(resumeTick, phoneStateOk) { listSims(context) }
@@ -163,6 +167,10 @@ fun SettingsScreen(
 
         HorizontalDivider()
 
+        SmsSection(snap, resumeTick, onEdit)
+
+        HorizontalDivider()
+
         // --- Outils ---
         Text("Outils de vérification", style = MaterialTheme.typography.titleMedium)
         Text(
@@ -184,7 +192,7 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
         ) { Text(if (queryRunning) "Interrogation…" else "Vérifier le renvoi actuellement en place") }
 
-        val current = Planner.current(snap.shifts, Instant.now(), ZoneId.systemDefault())
+        val current = Planner.currentShift(snap, Instant.now(), ZoneId.systemDefault())
         OutlinedButton(
             enabled = callOk && current != null,
             onClick = { Relay.reconcile(context, Relay.Trigger.MANUAL, force = true) },
@@ -222,7 +230,7 @@ fun SettingsScreen(
     }
 
     if (confirmEnable) {
-        val current = Planner.current(snap.shifts, Instant.now(), ZoneId.systemDefault())
+        val current = Planner.currentShift(snap, Instant.now(), ZoneId.systemDefault())
         val who = current?.let { snap.doctor(it.doctorId)?.name ?: "aucun renvoi" }
         AlertDialog(
             onDismissRequest = { confirmEnable = false },
@@ -267,6 +275,16 @@ fun SettingsScreen(
             title = { Text("Vérification du renvoi") },
             text = { Text(text) },
             confirmButton = { TextButton(onClick = { queryResult = null }) { Text("OK") } },
+        )
+    }
+    if (showSlots) {
+        SlotsEditorDialog(
+            snap = snap,
+            onDismiss = { showSlots = false },
+            onSave = { slots ->
+                onEdit { it.copy(settings = it.settings.copy(slots = slots)) }
+                showSlots = false
+            },
         )
     }
     if (showDefaultTime) {

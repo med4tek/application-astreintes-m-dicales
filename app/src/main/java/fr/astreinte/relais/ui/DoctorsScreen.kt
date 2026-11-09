@@ -116,12 +116,14 @@ fun DoctorsScreen(
             it.doctorId == d.id && fr.astreinte.relais.core.Planner.startOf(it, zone) >= now
         }
         val usedAny = snap.shifts.count { it.doctorId == d.id }
+        val usedAsDefault = snap.settings.slots.any { it.defaultTargetId == d.id }
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Supprimer ${d.name} ?") },
             text = {
                 Text(
                     when {
+                        usedAsDefault -> "Cette fiche est la cible par défaut d'un créneau (Réglages → Horaires de la journée). Changez d'abord ce réglage ; vous pouvez sinon simplement modifier son numéro ici."
                         usedFuture > 0 -> "$usedFuture astreinte(s) à venir sont prévues pour ce médecin. Changez-les d'abord dans le planning (ou modifiez simplement son numéro ici)."
                         usedAny > 0 -> "Ses $usedAny astreinte(s) passée(s) apparaîtront comme « médecin supprimé »."
                         else -> "Cette fiche sera supprimée."
@@ -130,7 +132,7 @@ fun DoctorsScreen(
             },
             confirmButton = {
                 Button(
-                    enabled = usedFuture == 0,
+                    enabled = usedFuture == 0 && !usedAsDefault,
                     onClick = {
                         onEdit { s -> s.copy(doctors = s.doctors.filter { it.id != d.id }) }
                         deleting = null

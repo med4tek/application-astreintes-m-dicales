@@ -27,7 +27,7 @@ object Alarms {
     fun scheduleNext(context: Context, snap: Snapshot) {
         val am = context.getSystemService(AlarmManager::class.java)
         val pi = pending(context, RC_SHIFT, ACTION_SHIFT)
-        val next = Planner.next(snap.shifts, Instant.now(), ZoneId.systemDefault())
+        val next = Planner.nextShift(snap, Instant.now(), ZoneId.systemDefault())
         if (next == null) {
             am.cancel(pi)
             return

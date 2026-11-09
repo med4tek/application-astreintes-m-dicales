@@ -20,6 +20,9 @@ object Perms {
     fun notifications(context: Context) =
         Build.VERSION.SDK_INT < 33 || has(context, Manifest.permission.POST_NOTIFICATIONS)
 
+    fun receiveSms(context: Context) = has(context, Manifest.permission.RECEIVE_SMS)
+    fun sendSms(context: Context) = has(context, Manifest.permission.SEND_SMS)
+
     fun exactAlarms(context: Context) = Alarms.canScheduleExact(context)
 
     fun batteryUnrestricted(context: Context) =

@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <!-- Notifications de confirmation / d'échec -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Commande du planning par SMS codifié (optionnelle) -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
     <!-- Réarmer le planning au redémarrage du téléphone -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Alarmes exactes pour basculer à la minute près -->
@@ -44,6 +47,16 @@
         <receiver
             android:name=".sys.AlarmReceiver"
             android:exported="false" />
+
+        <!-- SMS entrants (seul le système peut envoyer ce broadcast) -->
+        <receiver
+            android:name=".sys.SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Événements système (tous protégés : non falsifiables par d'autres apps) -->
         <receiver

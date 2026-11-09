@@ -20,6 +20,7 @@ object Relay {
     private const val TAG = "Relay"
     private const val MAX_ATTEMPTS = 5
     private const val RETRY_DELAY_MS = 60_000L
+    private const val STALE_AFTER_MS = 6 * 60 * 60 * 1000L
 
     enum class Trigger(val label: String, val isRetry: Boolean = false) {
         ALARM("changement d'astreinte"),
@@ -54,7 +55,7 @@ object Relay {
 
         // Une alarme peut sonner quelques ms avant l'heure pile : on garde 5 s de marge
         val now = Instant.now().let { if (trigger == Trigger.ALARM || trigger.isRetry) it.plusSeconds(5) else it }
-        val current = Planner.current(snap.shifts, now, ZoneId.systemDefault())
+        val current = Planner.currentShift(snap, now, ZoneId.systemDefault())
         if (current == null) {
             onDone()
             return
@@ -72,7 +73,10 @@ object Relay {
         }
 
         val st = snap.state
-        val needed = force || st.lastCommand != command || !st.lastOk
+        // À chaque alarme on réaffirme le renvoi s'il date de plus de 6 h (sécurité), sans rappeler
+        // inutilement quand deux créneaux consécutifs visent la même cible.
+        val stale = trigger == Trigger.ALARM && System.currentTimeMillis() - st.lastAt > STALE_AFTER_MS
+        val needed = force || stale || st.lastCommand != command || !st.lastOk
         if (!needed) {
             onDone()
             return

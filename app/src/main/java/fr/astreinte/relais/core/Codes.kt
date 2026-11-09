@@ -29,6 +29,14 @@ object Codes {
         return (if (plus) "+" else "") + digits
     }
 
+    /** Deux numéros désignent-ils la même ligne ? (compare les 9 derniers chiffres : 06… = +336…) */
+    fun samePhone(a: String, b: String): Boolean {
+        val da = a.filter { it.isDigit() }
+        val db = b.filter { it.isDigit() }
+        if (da.length < 6 || db.length < 6) return false
+        return if (da.length >= 9 && db.length >= 9) da.takeLast(9) == db.takeLast(9) else da == db
+    }
+
     /**
      * Code à composer pour que les appels aillent chez [doctor] ; [DEACTIVATE] si [doctor] est null.
      * Retourne null si le numéro du médecin est inutilisable.

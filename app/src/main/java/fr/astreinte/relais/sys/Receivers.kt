@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.PowerManager
+import android.provider.Telephony
 
 /** Alarmes internes : changement d'astreinte et nouvel essai. */
 class AlarmReceiver : BroadcastReceiver() {
@@ -13,7 +14,7 @@ class AlarmReceiver : BroadcastReceiver() {
             Alarms.ACTION_RETRY -> Relay.Trigger.RETRY
             else -> return
         }
-        runGuarded(context) { done -> Relay.reconcile(context, trigger, force = true, onDone = done) }
+        runGuarded(context) { done -> Relay.reconcile(context, trigger, force = trigger.isRetry, onDone = done) }
     }
 }
 
@@ -27,7 +28,7 @@ class SystemEventReceiver : BroadcastReceiver() {
 /**
  * Garde le CPU éveillé et le récepteur "vivant" (goAsync) le temps que la session USSD réponde.
  */
-private fun BroadcastReceiver.runGuarded(context: Context, work: (done: () -> Unit) -> Unit) {
+internal fun BroadcastReceiver.runGuarded(context: Context, work: (done: () -> Unit) -> Unit) {
     val pending = goAsync()
     val wl = context.getSystemService(PowerManager::class.java)
         .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "astreinte:relay")
@@ -45,5 +46,23 @@ private fun BroadcastReceiver.runGuarded(context: Context, work: (done: () -> Un
     } catch (e: Exception) {
         done()
         throw e
+    }
+}
+
+/** SMS entrants : seuls ceux qui commencent par « AST » sont traités (voir [SmsHandler]). */
+class SmsReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
+        val parts = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
+        // Un SMS long arrive en plusieurs morceaux : on les recolle par expéditeur
+        val bySender = parts.groupBy { it.originatingAddress.orEmpty() }
+            .mapValues { (_, list) -> list.joinToString("") { it.messageBody.orEmpty() } }
+        if (bySender.isEmpty()) return
+        runGuarded(context) { done ->
+            var remaining = bySender.size
+            bySender.forEach { (sender, body) ->
+                SmsHandler.handle(context, sender, body) { if (--remaining == 0) done() }
+            }
+        }
     }
 }
