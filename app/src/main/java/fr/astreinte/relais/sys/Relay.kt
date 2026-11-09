@@ -45,18 +45,25 @@ object Relay {
         Store.init(app)
         val snap = Store.snapshot.value
 
-        if (!snap.settings.enabled) {
+        // Seul un téléphone en mode "relais" applique des renvois (et envoie des messages automatiques)
+        if (!snap.settings.isRelay || !snap.settings.enabled) {
             Alarms.cancelAll(app)
             onDone()
             return
         }
         Alarms.scheduleNext(app, snap)
 
+        // Rien à envoyer au opérateur : on s'occupe quand même des messages automatiques dus
+        fun finishNoSend() {
+            Messenger.dispatchDue(app)
+            onDone()
+        }
+
         // Une alarme peut sonner quelques ms avant l'heure pile : on garde 5 s de marge
         val now = Instant.now().let { if (trigger == Trigger.ALARM || trigger.isRetry) it.plusSeconds(5) else it }
         val current = Planner.currentShift(snap, now, ZoneId.systemDefault())
         if (current == null) {
-            onDone()
+            finishNoSend()
             return
         }
 
@@ -67,7 +74,7 @@ object Relay {
             val msg = "Numéro de $label invalide : corrigez la fiche du médecin."
             record(app, trigger, "?", false, msg, attempts = MAX_ATTEMPTS)
             Notifier.failure(app, "", "Renvoi NON appliqué", msg, final = true)
-            onDone()
+            finishNoSend()
             return
         }
 
@@ -77,7 +84,7 @@ object Relay {
         val stale = trigger == Trigger.ALARM && System.currentTimeMillis() - st.lastAt > STALE_AFTER_MS
         val needed = force || stale || st.lastCommand != command || !st.lastOk
         if (!needed) {
-            onDone()
+            finishNoSend()
             return
         }
         send(app, command, label, trigger, onDone)
@@ -116,6 +123,8 @@ object Relay {
                 is Ussd.Result.Fail -> result.reason
             }
             onResult(app, command, label, trigger, ok, message)
+            // L'état du renvoi vient de changer : des messages "bascule faite" peuvent maintenant partir
+            Messenger.dispatchDue(app)
             busy = false
             release()
             if (rerunWanted) {

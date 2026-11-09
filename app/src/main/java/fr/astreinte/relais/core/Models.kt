@@ -36,6 +36,52 @@ sealed interface CellEdit {
     data class Set(val doctorId: String?) : CellEdit
 }
 
+/** Rôle de ce téléphone. */
+object Mode {
+    /** Pas encore choisi (premier lancement) : l'app ne fait rien d'automatique. */
+    const val NONE = ""
+
+    /** Téléphone d'astreinte : applique le renvoi d'appel, reçoit les commandes SMS, prévient les médecins. */
+    const val RELAY = "RELAY"
+
+    /** Téléphone personnel : consulte et modifie le planning, synchronisé par SMS avec le relais. */
+    const val VIEWER = "VIEWER"
+}
+
+/**
+ * Message automatique envoyé par le téléphone relais à un médecin.
+ * Envoyé à [at], au médecin d'astreinte au créneau [slotTime] du jour. Les variables du [text] :
+ * {nom} {debut} {fin} {date}.
+ */
+data class MessageRule(
+    val id: String,
+    val enabled: Boolean,
+    val at: LocalTime,
+    val slotTime: LocalTime,
+    /** Si vrai : n'envoyer que lorsque la bascule vers ce médecin est effectivement faite. */
+    val confirmsSwitch: Boolean,
+    val text: String,
+)
+
+val DEFAULT_MESSAGE_RULES: List<MessageRule> = listOf(
+    MessageRule(
+        "midi", true, LocalTime.of(12, 0), LocalTime.of(12, 0), true,
+        "Bonjour {nom}, tu es d'astreinte ce midi ({debut}-{fin}). La bascule vers ton numero est faite."
+    ),
+    MessageRule(
+        "apm", true, LocalTime.of(17, 0), LocalTime.of(17, 0), true,
+        "Bonjour {nom}, tu es d'astreinte cet apres-midi ({debut}-{fin}). La bascule vers ton numero est faite."
+    ),
+    MessageRule(
+        "rappel", true, LocalTime.of(17, 0), LocalTime.of(18, 0), false,
+        "Rappel {nom} : tu es d'astreinte ce soir a partir de {debut} jusqu'a {fin}."
+    ),
+    MessageRule(
+        "soir", true, LocalTime.of(18, 0), LocalTime.of(18, 0), true,
+        "Bonjour {nom}, la bascule est faite : ton astreinte commence ({debut}-{fin})."
+    ),
+)
+
 data class Settings(
     /** Interrupteur général : tant qu'il est à false, l'app n'envoie JAMAIS aucun code. */
     val enabled: Boolean = false,
@@ -59,7 +105,17 @@ data class Settings(
     val smsAllowDoctors: Boolean = true,
     /** Répondre par SMS à l'expéditeur (nécessite la permission d'envoi de SMS). */
     val smsReply: Boolean = false,
-)
+    /** Rôle du téléphone, voir [Mode]. */
+    val mode: String = Mode.NONE,
+    /** Mode consultation : numéro du téléphone relais, auquel sont envoyées les demandes. */
+    val relayNumber: String = "",
+    /** Mode relais : messages automatiques aux médecins. */
+    val msgEnabled: Boolean = false,
+    val msgRules: List<MessageRule> = DEFAULT_MESSAGE_RULES,
+) {
+    val isRelay: Boolean get() = mode == Mode.RELAY
+    val isViewer: Boolean get() = mode == Mode.VIEWER
+}
 
 /** Dernier envoi tenté, pour savoir s'il faut renvoyer le code. */
 data class ApplyState(
@@ -82,12 +138,39 @@ data class LogEntry(
     val message: String,
 )
 
+/** Synchronisation en cours (téléphone consultant). */
+data class PendingSync(
+    /** "PULL" (demande du planning) ou "PUSH" (envoi des modifications). */
+    val kind: String,
+    val id: String,
+    val startedAt: Long,
+    /** PULL : nombre de morceaux attendus (connu à la réception du premier). PUSH : nombre de SMS envoyés. */
+    val total: Int = 0,
+    /** PULL : morceaux de données reçus. PUSH : accusés reçus (valeur "OK"). */
+    val chunks: Map<Int, String> = emptyMap(),
+    val cellsSent: Int = 0,
+    /** PUSH : planning tel qu'envoyé, qui deviendra la référence quand tout est acquitté. */
+    val pushedShifts: List<Shift> = emptyList(),
+)
+
+data class SyncState(
+    val lastPullAt: Long = 0L,
+    val lastPushAt: Long = 0L,
+    val pending: PendingSync? = null,
+    val lastResult: String = "",
+)
+
 data class Snapshot(
     val doctors: List<Doctor> = listOf(STANDARD_DOCTOR),
     val shifts: List<Shift> = emptyList(),
     val settings: Settings = Settings(),
     val state: ApplyState = ApplyState(),
     val log: List<LogEntry> = emptyList(),
+    /** Mode consultation : planning tel que connu du relais à la dernière synchronisation. */
+    val baseline: List<Shift> = emptyList(),
+    val sync: SyncState = SyncState(),
+    /** Messages automatiques déjà envoyés ("date|règle"), pour ne jamais envoyer deux fois. */
+    val sentMessages: List<String> = emptyList(),
 ) {
     fun doctor(id: String?): Doctor? = id?.let { wanted -> doctors.firstOrNull { it.id == wanted } }
 }

@@ -53,6 +53,54 @@ Le nom du médecin est reconnu sans titre ni accents (« martin » → Dr Martin
 **Sécurité** : le PIN voyage en clair par SMS et un numéro d'expéditeur peut être usurpé : choisissez un PIN que vous n'utilisez nulle part ailleurs.
 Android 13+ peut bloquer la permission SMS d'une app installée à la main : infos de l'app → ⋮ → « Autoriser les paramètres restreints ».
 
+## Deux rôles : relais et consultation
+
+Au premier lancement, l'app demande le rôle du téléphone (modifiable dans **Réglages → Rôle de ce téléphone**).
+
+| | **Relais** (téléphone d'astreinte) | **Consultation** (téléphones perso) |
+|---|---|---|
+| Renvoi d'appel | Appliqué aux heures prévues | **Jamais** |
+| Commandes SMS | Reçues et exécutées | – |
+| Messages aux médecins | Envoyés | – |
+| Planning | Modifiable | Modifiable, puis envoyé au relais |
+| Médecins | Modifiables (fait foi) | Lecture seule, reçus du relais |
+| Onglet « Synchro » | – | Oui |
+
+Un fichier de données créé par une version d'avant les rôles reste en mode **relais** : rien ne change pour le téléphone d'astreinte existant.
+
+## Synchronisation relais ↔ consultation (par SMS)
+
+Le relais fait foi. Sur le téléphone de consultation, onglet **Synchro** :
+1. Renseignez le **numéro du relais** et le **PIN** (le même que celui du relais), autorisez les SMS.
+2. **Demander le planning au relais** : le relais répond par quelques SMS (médecins, créneaux, planning des ~6 prochaines semaines) ; le planning local est alors remplacé.
+3. Modifiez le planning comme d'habitude (grille, sélection multiple, import photo…).
+4. **Envoyer mes modifications au relais** : seules les cases modifiées partent (en commandes `AST … PUSH`). Le relais répond « OK » pour chaque SMS ; quand tout est acquitté, l'app affiche **« À jour avec le relais »** et notifie.
+
+À savoir :
+- Le **numéro du consultant doit être autorisé sur le relais** (médecin enregistré, ou « Autres numéros autorisés ») et la commande SMS activée avec un PIN.
+- Le relais doit avoir la permission d'envoi de SMS (il répond toujours à une synchro, même si « Répondre par SMS » est coupé).
+- Un envoi ou une demande sans réponse est abandonné après 10 minutes ; rien n'est perdu côté consultation.
+- Les ajouts de médecins se font **sur le relais** (leurs numéros ne transitent que dans le sens relais → consultation).
+- Chaque synchro coûte quelques SMS (≈ 3 par tranche de 430 caractères).
+- Vrai SMS obligatoire (pas de RCS), comme pour les autres commandes.
+
+## Messages automatiques aux médecins (relais)
+
+**Réglages → Messages automatiques aux médecins** : le relais envoie des SMS aux médecins d'astreinte. Quatre messages sont proposés d'origine :
+
+| Heure | Destinataire | Message |
+|---|---|---|
+| 12h | médecin de 12h | « Tu es d'astreinte ce midi (12h-14h). La bascule vers ton numéro est faite. » |
+| 17h | médecin de 17h | « Tu es d'astreinte cet après-midi (17h-18h). La bascule est faite. » |
+| 17h | médecin de **18h** | « Rappel : tu es d'astreinte ce soir à partir de 18h jusqu'à demain 9h. » |
+| 18h | médecin de 18h | « La bascule est faite : ton astreinte commence (18h-demain 9h). » |
+
+- Les messages « bascule faite » ne partent que lorsque le renvoi vers ce médecin est **réellement en place**.
+- Chacun est activable, modifiable (texte, heure, créneau visé) ; variables `{nom}` `{debut}` `{fin}` `{date}`.
+- Jamais envoyé : au standard, s'il n'y a personne d'astreinte à ce créneau, deux fois, ou plus de 90 minutes après l'heure prévue. Un rappel annoncé à l'avance n'est plus envoyé une fois le créneau commencé.
+- Nécessite la bascule automatique active et la permission d'envoi de SMS. Le journal indique chaque message (ou la raison de son non-envoi).
+- Évitez accents et symboles spéciaux : un SMS en caractères spéciaux est découpé en messages plus courts.
+
 ## Installation (Android 15)
 
 1. Copiez `AstreinteRelais.apk` sur le téléphone et ouvrez-le (autoriser l'installation depuis cette source).

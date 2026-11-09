@@ -1,8 +1,6 @@
 package fr.astreinte.relais.sys
 
 import android.content.Context
-import android.telephony.SmsManager
-import android.util.Log
 import fr.astreinte.relais.core.Codes
 import fr.astreinte.relais.core.LogEntry
 import fr.astreinte.relais.core.Planner
@@ -12,6 +10,8 @@ import fr.astreinte.relais.core.Snapshot
 import fr.astreinte.relais.core.SmsAction
 import fr.astreinte.relais.core.SmsCommands
 import fr.astreinte.relais.core.SmsParse
+import fr.astreinte.relais.core.SyncCodec
+import fr.astreinte.relais.core.SyncLogic
 import fr.astreinte.relais.data.Store
 import java.security.MessageDigest
 import java.time.Instant
@@ -20,13 +20,16 @@ import java.time.ZoneId
 import java.util.UUID
 
 /**
- * Traite un SMS de commande « AST <PIN> … ».
+ * Traite un SMS entrant selon le rôle du téléphone.
  *
- * Deux verrous : l'expéditeur doit être autorisé ET connaître le PIN. Les SMS qui ne commencent pas
- * par AST sont ignorés sans rien enregistrer. Le corps du SMS (donc le PIN) n'est jamais journalisé.
+ * RELAIS : commandes « AST <PIN> … » (modifier / consulter / SYNC / PUSH). Deux verrous : expéditeur
+ * autorisé ET PIN. Les SMS qui ne commencent pas par AST sont ignorés sans rien enregistrer. Le corps
+ * du SMS (donc le PIN) n'est jamais journalisé.
+ *
+ * CONSULTATION : seules les réponses du relais (ASTDATA, ASTACK) sont lues, et seulement si une
+ * demande est en cours, que l'expéditeur est le numéro du relais et que le numéro de demande correspond.
  */
 object SmsHandler {
-    private const val TAG = "SmsHandler"
     private const val MIN_PIN = 4
 
     fun handle(context: Context, sender: String, body: String, onDone: () -> Unit) {
@@ -38,14 +41,45 @@ object SmsHandler {
             s.copy(state = s.state.copy(lastSmsAt = System.currentTimeMillis(), lastSmsWasCommand = envelope != SmsParse.NotCommand))
         }
         val snap = Store.snapshot.value
+        when {
+            snap.settings.isViewer -> handleAsViewer(app, snap, sender, body, onDone)
+            snap.settings.isRelay -> handleAsRelay(app, snap, sender, envelope, onDone)
+            else -> onDone()
+        }
+    }
+
+    // ================================================================== consultation
+
+    private fun handleAsViewer(app: Context, snap: Snapshot, sender: String, body: String, onDone: () -> Unit) {
+        val relay = snap.settings.relayNumber
+        if (relay.isBlank() || !Codes.samePhone(relay, sender)) return onDone()
+        val now = System.currentTimeMillis()
+        val hadPending = snap.sync.pending != null
+
+        val chunk = SyncCodec.parseDataChunk(body)
+        val ack = if (chunk == null) SyncCodec.parseAck(body) else null
+        if (chunk == null && ack == null) return onDone()
+
+        Store.update { s -> if (chunk != null) SyncLogic.onDataChunk(s, chunk, now) else SyncLogic.onAck(s, ack!!, now) }
+        val after = Store.snapshot.value.sync
+        // La synchronisation vient de se terminer (succès ou refus) : on le dit
+        if (hadPending && after.pending == null && after.lastResult.isNotBlank()) {
+            Notifier.info(app, if (chunk != null) "Planning reçu" else "Synchronisation", after.lastResult)
+        }
+        onDone()
+    }
+
+    // ================================================================== relais
+
+    private fun handleAsRelay(app: Context, snap: Snapshot, sender: String, env: SmsParse, onDone: () -> Unit) {
         val st = snap.settings
         if (!st.smsEnabled) return onDone()
         if (st.smsPin.length < MIN_PIN) {
-            if (envelope != SmsParse.NotCommand) log(sender, false, "Commande reçue mais ignorée : aucun PIN (4 caractères minimum) défini dans les réglages")
+            if (env != SmsParse.NotCommand) log(sender, false, "Commande reçue mais ignorée : aucun PIN (4 caractères minimum) défini dans les réglages")
             return onDone()
         }
 
-        when (val env = envelope) {
+        when (env) {
             SmsParse.NotCommand -> onDone()
             is SmsParse.Malformed -> {
                 if (isAllowed(sender, snap)) {
@@ -99,6 +133,29 @@ object SmsHandler {
                 // Si la modification touche l'astreinte en cours, le renvoi est appliqué tout de suite
                 Relay.reconcile(app, Relay.Trigger.EDIT, onDone = onDone)
             }
+            is SmsAction.Sync -> {
+                // Un téléphone consultant demande tout le planning : réponse forcée, c'est le but de la demande
+                val chunks = SyncCodec.encodeData(snap, action.id, LocalDate.now(zone))
+                val ok = chunks.all { SmsOut.send(app, sender, it) }
+                log(sender, ok, if (ok) "Planning envoyé pour synchronisation (${chunks.size} SMS)" else "Planning non envoyé : permission d'envoi de SMS refusée ?")
+                onDone()
+            }
+            is SmsAction.Push -> {
+                if (action.error != null) {
+                    log(sender, false, "Modifications reçues (${action.part}/${action.total}) refusées : ${action.error}")
+                    SmsOut.send(app, sender, SyncCodec.ackText(action.id, action.part, action.total, false, action.error))
+                    return onDone()
+                }
+                val cells = SyncCodec.countCells(action.groups)
+                val summary = SmsCommands.describe(action.groups, snap.doctors)
+                Store.update { s ->
+                    s.copy(shifts = SmsCommands.apply(s.shifts, action.groups) { UUID.randomUUID().toString() })
+                }
+                log(sender, true, "Synchronisation reçue ${action.part}/${action.total} : $cells case(s)")
+                Notifier.info(app, "Planning mis à jour depuis $sender", summary)
+                SmsOut.send(app, sender, SyncCodec.ackText(action.id, action.part, action.total, true, cells.toString()))
+                Relay.reconcile(app, Relay.Trigger.EDIT, onDone = onDone)
+            }
         }
     }
 
@@ -150,13 +207,7 @@ object SmsHandler {
     }
 
     private fun reply(app: Context, st: Settings, to: String, text: String) {
-        if (!st.smsReply || !Perms.sendSms(app) || to.isBlank()) return
-        try {
-            val sms = app.getSystemService(SmsManager::class.java)
-            val trimmed = text.take(600)
-            sms.sendMultipartTextMessage(to, null, sms.divideMessage(trimmed), null, null)
-        } catch (e: Exception) {
-            Log.w(TAG, "Réponse SMS impossible", e)
-        }
+        if (!st.smsReply || to.isBlank()) return
+        SmsOut.send(app, to, text.take(600))
     }
 }

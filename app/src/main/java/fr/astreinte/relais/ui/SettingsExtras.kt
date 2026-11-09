@@ -51,6 +51,19 @@ import fr.astreinte.relais.core.Snapshot
 import fr.astreinte.relais.core.SmsAction
 import fr.astreinte.relais.core.SmsCommands
 import fr.astreinte.relais.core.SmsParse
+import fr.astreinte.relais.core.SyncCodec
+import fr.astreinte.relais.core.Mode
+import fr.astreinte.relais.core.Doctor
+import fr.astreinte.relais.core.MessageRule
+import fr.astreinte.relais.core.DEFAULT_MESSAGE_RULES
+import fr.astreinte.relais.core.Messages
+import java.util.UUID
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.RadioButton
 import fr.astreinte.relais.sys.Perms
 import fr.astreinte.relais.sys.SmsHandler
 import java.text.SimpleDateFormat
@@ -332,8 +345,253 @@ private fun simulate(snap: Snapshot, text: String): String =
             } else when (val a = SmsCommands.interpret(env.args, snap.doctors, snap.settings.slots, LocalDate.now())) {
                 is SmsAction.Error -> "Erreur : ${a.why}"
                 SmsAction.Query -> "Compris : demande d'état du renvoi."
+                is SmsAction.Sync -> "Compris : demande de synchronisation (le relais renverrait tout le planning)."
+                is SmsAction.Push ->
+                    if (a.error != null) "Erreur : ${a.error}"
+                    else "Compris : modifications ${a.part}/${a.total}, ${SyncCodec.countCells(a.groups)} case(s)."
                 is SmsAction.Plan -> "Réponse qui serait envoyée :\n" +
                     SmsCommands.planText(snap, a.dates, java.time.ZoneId.systemDefault())
                 is SmsAction.Edit -> "Compris : " + SmsCommands.describe(a.groups, snap.doctors)
             }
     }
+
+// ====================================================================== rôle du téléphone
+
+/** Choix du rôle : relais (téléphone d'astreinte) ou consultation (téléphone personnel). */
+@Composable
+fun ModeCard(snap: Snapshot, onEdit: ((Snapshot) -> Snapshot) -> Unit) {
+    val mode = snap.settings.mode
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Rôle de ce téléphone", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            ModeOption(
+                selected = mode == Mode.RELAY,
+                title = "Relais (téléphone d'astreinte)",
+                subtitle = "Applique le renvoi d'appel, reçoit les commandes par SMS, prévient les médecins.",
+            ) { onEdit { it.copy(settings = it.settings.copy(mode = Mode.RELAY)) } }
+            ModeOption(
+                selected = mode == Mode.VIEWER,
+                title = "Consultation (téléphone personnel)",
+                subtitle = "Consulte et modifie le planning, synchronisé par SMS avec le relais. N'applique jamais de renvoi.",
+            ) { onEdit { it.copy(settings = it.settings.copy(mode = Mode.VIEWER)) } }
+        }
+    }
+}
+
+@Composable
+private fun ModeOption(selected: Boolean, title: String, subtitle: String, onPick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onPick).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(top = 2.dp, end = 12.dp))
+        Column {
+            Text(title, fontWeight = FontWeight.Bold)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+/** Premier lancement : impossible à ignorer, le rôle détermine tout le comportement. */
+@Composable
+fun ModeChooserDialog(onPick: (String) -> Unit) {
+    AlertDialog(
+        onDismissRequest = { },
+        title = { Text("Quel est le rôle de ce téléphone ?") },
+        text = {
+            Text(
+                "• Relais : le téléphone d'astreinte. Il applique le renvoi d'appel aux heures prévues.\n\n" +
+                    "• Consultation : votre téléphone personnel. Il sert à voir et modifier le planning, " +
+                    "et se synchronise par SMS avec le relais.\n\nVous pourrez changer plus tard dans les Réglages."
+            )
+        },
+        confirmButton = { Button(onClick = { onPick(Mode.RELAY) }) { Text("Relais") } },
+        dismissButton = { OutlinedButton(onClick = { onPick(Mode.VIEWER) }) { Text("Consultation") } },
+    )
+}
+
+// ====================================================================== messages automatiques
+
+/** Messages SMS envoyés automatiquement aux médecins par le téléphone relais. */
+@Composable
+fun MessagesSection(snap: Snapshot, resumeTick: Int, onEdit: ((Snapshot) -> Snapshot) -> Unit) {
+    val context = LocalContext.current
+    val st = snap.settings
+    val sendOk = remember(resumeTick) { Perms.sendSms(context) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    var editing by remember { mutableStateOf<MessageRule?>(null) }
+    var creating by remember { mutableStateOf(false) }
+
+    Text("Messages automatiques aux médecins", style = MaterialTheme.typography.titleMedium)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Prévenir les médecins par SMS")
+            Text(
+                "Ex. à 12h : « tu es d'astreinte, la bascule est faite ». Envoyé depuis ce téléphone au médecin concerné.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Switch(
+            checked = st.msgEnabled,
+            onCheckedChange = { v ->
+                if (v && !sendOk) launcher.launch(arrayOf(Manifest.permission.SEND_SMS))
+                onEdit { it.copy(settings = it.settings.copy(msgEnabled = v)) }
+            },
+        )
+    }
+    if (!st.msgEnabled) return
+
+    if (!sendOk) {
+        Text("Permission d'envoi de SMS manquante : aucun message ne partira.", color = MaterialTheme.colorScheme.error)
+        TextButton(onClick = { launcher.launch(arrayOf(Manifest.permission.SEND_SMS)) }) { Text("Autoriser") }
+    }
+    if (!st.enabled) {
+        Text(
+            "Les messages ne partent que lorsque la « Bascule automatique » est active.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+        )
+    }
+
+    st.msgRules.forEach { rule ->
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable { editing = rule },
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        ) {
+            Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "${Messages.hourText(rule.at)} → médecin du créneau ${Messages.hourText(rule.slotTime)}" +
+                            if (rule.confirmsSwitch) " (si bascule faite)" else "",
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        rule.text,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
+                Switch(
+                    checked = rule.enabled,
+                    onCheckedChange = { v ->
+                        onEdit { s -> s.copy(settings = s.settings.copy(msgRules = s.settings.msgRules.map { if (it.id == rule.id) it.copy(enabled = v) else it })) }
+                    },
+                )
+            }
+        }
+    }
+    Row {
+        TextButton(onClick = { creating = true }) {
+            Icon(Icons.Filled.Add, contentDescription = null)
+            Spacer(Modifier.width(4.dp))
+            Text("Ajouter un message")
+        }
+        TextButton(onClick = { onEdit { it.copy(settings = it.settings.copy(msgRules = DEFAULT_MESSAGE_RULES)) } }) {
+            Text("Rétablir ceux d'origine")
+        }
+    }
+
+    if (creating || editing != null) {
+        val rule = editing ?: MessageRule(
+            UUID.randomUUID().toString(), true,
+            st.slots.minByOrNull { it.time }?.time ?: LocalTime.of(12, 0),
+            st.slots.minByOrNull { it.time }?.time ?: LocalTime.of(12, 0),
+            true, "Bonjour {nom}, tu es d'astreinte de {debut} a {fin}.",
+        )
+        val isNew = editing == null
+        MessageRuleDialog(
+            snap = snap,
+            initial = rule,
+            canDelete = !isNew,
+            onDismiss = { creating = false; editing = null },
+            onDelete = {
+                onEdit { s -> s.copy(settings = s.settings.copy(msgRules = s.settings.msgRules.filter { it.id != rule.id })) }
+                creating = false; editing = null
+            },
+            onSave = { saved ->
+                onEdit { s ->
+                    val rules = s.settings.msgRules
+                    s.copy(settings = s.settings.copy(msgRules = if (isNew) rules + saved else rules.map { if (it.id == saved.id) saved else it }))
+                }
+                creating = false; editing = null
+            },
+        )
+    }
+}
+
+@Composable
+private fun MessageRuleDialog(
+    snap: Snapshot,
+    initial: MessageRule,
+    canDelete: Boolean,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+    onSave: (MessageRule) -> Unit,
+) {
+    var at by remember { mutableStateOf(initial.at) }
+    var slotTime by remember { mutableStateOf(initial.slotTime) }
+    var confirms by remember { mutableStateOf(initial.confirmsSwitch) }
+    var text by remember { mutableStateOf(initial.text) }
+    var pickAt by remember { mutableStateOf(false) }
+    var slotMenu by remember { mutableStateOf(false) }
+    val slots = snap.settings.slots.sortedBy { it.time }
+    val example = snap.doctors.firstOrNull { it.id != STANDARD_ID } ?: Doctor("x", "Dr Exemple", "0600000000")
+    val preview = Messages.render(text, example, LocalDate.now(), slotTime, slots)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (canDelete) "Modifier le message" else "Nouveau message") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LabeledRow("Envoyé à") { OutlinedButton(onClick = { pickAt = true }) { Text(at.hhmm()) } }
+                LabeledRow("Pour") {
+                    Box(Modifier.weight(1f)) {
+                        OutlinedButton(onClick = { slotMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("le médecin de ${Messages.hourText(slotTime)}")
+                        }
+                        DropdownMenu(expanded = slotMenu, onDismissRequest = { slotMenu = false }) {
+                            slots.forEach { sl ->
+                                DropdownMenuItem(
+                                    text = { Text("${Messages.hourText(sl.time)} · ${sl.label}") },
+                                    onClick = { slotTime = sl.time; slotMenu = false },
+                                )
+                            }
+                        }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Seulement si la bascule vers lui est faite", Modifier.weight(1f))
+                    Switch(checked = confirms, onCheckedChange = { confirms = it })
+                }
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Texte du message") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Variables : {nom} {debut} {fin} {date}. Évitez les accents et symboles spéciaux : un SMS avec " +
+                        "caractères spéciaux est découpé en messages plus courts.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text("Aperçu : $preview", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                Text(
+                    "Le message n'est jamais envoyé au standard, ni s'il n'y a personne d'astreinte à ce créneau, ni plus de 90 minutes après l'heure prévue.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (canDelete) {
+                    TextButton(onClick = onDelete) { Text("Supprimer ce message", color = MaterialTheme.colorScheme.error) }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = text.isNotBlank(),
+                onClick = { onSave(initial.copy(at = at, slotTime = slotTime, confirmsSwitch = confirms, text = text.trim())) },
+            ) { Text("Enregistrer") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+    if (pickAt) TimeDialog("Heure d'envoi", at, { pickAt = false }) { at = it; pickAt = false }
+}

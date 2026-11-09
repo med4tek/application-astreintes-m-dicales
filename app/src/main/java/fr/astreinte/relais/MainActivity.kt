@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
@@ -15,21 +16,33 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import fr.astreinte.relais.core.Mode
 import fr.astreinte.relais.core.Snapshot
 import fr.astreinte.relais.data.Store
 import fr.astreinte.relais.sys.Relay
 import fr.astreinte.relais.ui.AppTheme
 import fr.astreinte.relais.ui.DoctorsScreen
 import fr.astreinte.relais.ui.ImportScreen
+import fr.astreinte.relais.ui.ModeChooserDialog
 import fr.astreinte.relais.ui.PlanningScreen
 import fr.astreinte.relais.ui.SettingsScreen
+import fr.astreinte.relais.ui.SyncScreen
+
+private enum class Tab(val label: String, val icon: ImageVector) {
+    PLANNING("Planning", Icons.Filled.DateRange),
+    DOCTORS("Médecins", Icons.Filled.Person),
+    IMPORT("Import", Icons.Filled.Share),
+    SYNC("Synchro", Icons.Filled.Refresh),
+    SETTINGS("Réglages", Icons.Filled.Settings),
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -43,21 +56,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             AppTheme {
                 val snap by Store.snapshot.collectAsState()
-                var tab by rememberSaveable { mutableIntStateOf(0) }
+                val viewer = snap.settings.isViewer
+                // L'onglet « Synchro » n'existe qu'en mode consultation
+                val tabs = if (viewer) Tab.entries else Tab.entries.filter { it != Tab.SYNC }
+                var tabName by rememberSaveable { mutableStateOf(Tab.PLANNING.name) }
+                val tab = tabs.firstOrNull { it.name == tabName } ?: Tab.PLANNING
+
                 Scaffold(
                     bottomBar = {
                         NavigationBar {
-                            listOf(
-                                "Planning" to Icons.Filled.DateRange,
-                                "Médecins" to Icons.Filled.Person,
-                                "Import" to Icons.Filled.Share,
-                                "Réglages" to Icons.Filled.Settings,
-                            ).forEachIndexed { i, (label, icon) ->
+                            tabs.forEach { t ->
                                 NavigationBarItem(
-                                    selected = tab == i,
-                                    onClick = { tab = i },
-                                    icon = { Icon(icon, contentDescription = null) },
-                                    label = { Text(label) },
+                                    selected = tab == t,
+                                    onClick = { tabName = t.name },
+                                    icon = { Icon(t.icon, contentDescription = null) },
+                                    label = { Text(t.label) },
                                 )
                             }
                         }
@@ -65,11 +78,22 @@ class MainActivity : ComponentActivity() {
                 ) { padding ->
                     val m = Modifier.padding(padding)
                     when (tab) {
-                        0 -> PlanningScreen(snap, ::edit, onGoToSettings = { tab = 3 }, modifier = m)
-                        1 -> DoctorsScreen(snap, ::edit, modifier = m)
-                        2 -> ImportScreen(snap, ::edit, modifier = m)
-                        else -> SettingsScreen(snap, resumeTick, ::edit, modifier = m)
+                        Tab.PLANNING -> PlanningScreen(
+                            snap, ::edit,
+                            onGoToSettings = { tabName = Tab.SETTINGS.name },
+                            onGoToSync = { tabName = Tab.SYNC.name },
+                            modifier = m,
+                        )
+                        Tab.DOCTORS -> DoctorsScreen(snap, ::edit, modifier = m, readOnly = viewer)
+                        Tab.IMPORT -> ImportScreen(snap, ::edit, modifier = m)
+                        Tab.SYNC -> SyncScreen(snap, resumeTick, ::edit, modifier = m)
+                        Tab.SETTINGS -> SettingsScreen(snap, resumeTick, ::edit, modifier = m)
                     }
+                }
+
+                // Premier lancement : le rôle du téléphone doit être choisi
+                if (snap.settings.mode == Mode.NONE) {
+                    ModeChooserDialog { mode -> edit { it.copy(settings = it.settings.copy(mode = mode)) } }
                 }
             }
         }

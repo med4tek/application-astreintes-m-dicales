@@ -67,6 +67,7 @@ import fr.astreinte.relais.core.Planner
 import fr.astreinte.relais.core.Shift
 import fr.astreinte.relais.core.Slot
 import fr.astreinte.relais.core.Snapshot
+import fr.astreinte.relais.core.SyncLogic
 import kotlinx.coroutines.delay
 import java.time.DayOfWeek
 import java.time.Instant
@@ -114,6 +115,7 @@ fun PlanningScreen(
     snap: Snapshot,
     onEdit: ((Snapshot) -> Snapshot) -> Unit,
     onGoToSettings: () -> Unit,
+    onGoToSync: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val zone = ZoneId.systemDefault()
@@ -157,7 +159,7 @@ fun PlanningScreen(
     val cellsByDate = remember(snap.shifts, snap.doctors, slots, monthIndex) { buildCells(snap, slots, month, zone) }
 
     Column(modifier.fillMaxSize()) {
-        StatusCard(snap, now, zone, onGoToSettings, Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+        StatusCard(snap, now, zone, onGoToSettings, onGoToSync, Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { monthIndex-- }) {
@@ -320,8 +322,13 @@ private fun StatusCard(
     now: Instant,
     zone: ZoneId,
     onGoToSettings: () -> Unit,
+    onGoToSync: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (snap.settings.isViewer) {
+        ViewerCard(snap, onGoToSync, modifier)
+        return
+    }
     val current = Planner.currentShift(snap, now, zone)
     val next = Planner.nextShift(snap, now, zone)
     val problem = !snap.state.lastOk && snap.state.lastAt > 0
@@ -366,6 +373,33 @@ private fun StatusCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/** Carte d'état d'un téléphone de consultation : pas de renvoi ici, mais l'état de la synchro. */
+@Composable
+private fun ViewerCard(snap: Snapshot, onGoToSync: () -> Unit, modifier: Modifier) {
+    val unsent = SyncLogic.unsentCount(snap)
+    val never = snap.sync.lastPullAt == 0L
+    Card(
+        modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (unsent > 0 || never) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer
+        ),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Mode consultation", style = MaterialTheme.typography.labelMedium)
+            Text(
+                when {
+                    never -> "Planning pas encore reçu du relais"
+                    unsent > 0 -> "$unsent modification(s) à envoyer"
+                    else -> "✓ À jour avec le relais"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            TextButton(onClick = onGoToSync) { Text("Synchroniser") }
         }
     }
 }

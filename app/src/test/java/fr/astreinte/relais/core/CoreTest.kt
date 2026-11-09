@@ -219,6 +219,7 @@ class SnapshotJsonTest {
         assertEquals(DEFAULT_SLOTS, snap.settings.slots)
         assertTrue(snap.settings.enabled)
         assertTrue(!snap.settings.smsEnabled)
+        assertEquals(Mode.RELAY, snap.settings.mode) // un fichier d'avant les modes était un relais
     }
 }
 

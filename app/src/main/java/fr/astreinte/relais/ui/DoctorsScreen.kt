@@ -48,6 +48,7 @@ fun DoctorsScreen(
     snap: Snapshot,
     onEdit: ((Snapshot) -> Snapshot) -> Unit,
     modifier: Modifier = Modifier,
+    readOnly: Boolean = false,
 ) {
     var editing by remember { mutableStateOf<Doctor?>(null) }
     var creating by remember { mutableStateOf(false) }
@@ -76,18 +77,28 @@ fun DoctorsScreen(
                             Text(d.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Text(if (valid) d.phone else "${d.phone}  (numéro invalide)")
                         }
-                        IconButton(onClick = { editing = d }) { Icon(Icons.Filled.Edit, contentDescription = "Modifier") }
-                        IconButton(onClick = { deleting = d }) { Icon(Icons.Filled.Delete, contentDescription = "Supprimer") }
+                        if (!readOnly) {
+                            IconButton(onClick = { editing = d }) { Icon(Icons.Filled.Edit, contentDescription = "Modifier") }
+                            IconButton(onClick = { deleting = d }) { Icon(Icons.Filled.Delete, contentDescription = "Supprimer") }
+                        }
                     }
                 }
             }
         }
-        ExtendedFloatingActionButton(
-            onClick = { creating = true },
-            icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-            text = { Text("Médecin") },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-        )
+        if (!readOnly) {
+            ExtendedFloatingActionButton(
+                onClick = { creating = true },
+                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                text = { Text("Médecin") },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+            )
+        } else {
+            Text(
+                "Liste gérée sur le téléphone relais : elle se met à jour à chaque « Demander le planning ».",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+            )
+        }
     }
 
     if (creating) {

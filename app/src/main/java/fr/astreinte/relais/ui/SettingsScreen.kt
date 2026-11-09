@@ -87,145 +87,151 @@ fun SettingsScreen(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // --- Interrupteur principal ---
-        Card(colors = CardDefaults.cardColors(
-            containerColor = if (snap.settings.enabled) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surfaceVariant
-        )) {
-            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        ModeCard(snap, onEdit)
+
+        if (snap.settings.isRelay) {
+            // --- Interrupteur principal ---
+            Card(colors = CardDefaults.cardColors(
+                containerColor = if (snap.settings.enabled) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant
+            )) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Bascule automatique", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (snap.settings.enabled) "Active : le renvoi suit le planning."
+                            else "Désactivée : rien n'est envoyé à l'opérateur.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = snap.settings.enabled,
+                        onCheckedChange = { wanted ->
+                            if (!wanted) {
+                                onEdit { it.copy(settings = it.settings.copy(enabled = false)) }
+                            } else if (!Perms.call(context)) {
+                                permLauncher.launch(requiredPermissions())
+                            } else {
+                                confirmEnable = true
+                            }
+                        },
+                    )
+                }
+            }
+
+            // --- Autorisations ---
+            Text("Autorisations", style = MaterialTheme.typography.titleMedium)
+            PermRow("Téléphone (envoyer le code de renvoi)", callOk, required = true) {
+                permLauncher.launch(requiredPermissions())
+            }
+            PermRow("Notifications (confirmation / alerte d'échec)", notifOk, required = true) {
+                permLauncher.launch(requiredPermissions())
+            }
+            PermRow("Alarmes exactes (basculer à la minute près)", exactOk, required = true) {
+                context.startSafely(Perms.exactAlarmSettingsIntent(context))
+            }
+            PermRow("Batterie : ne pas restreindre l'app", batteryOk, required = false) {
+                context.startSafely(Perms.batteryIntent(context))
+            }
+            TextButton(onClick = { context.startSafely(Perms.appDetailsIntent(context)) }) {
+                Text("Ouvrir les réglages Android de l'app")
+            }
+
+            HorizontalDivider()
+
+            // --- Préférences ---
+            Text("Préférences", style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(onClick = { showSlots = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Horaires de la journée : " + snap.settings.slots.sortedBy { it.time }.joinToString(" ") { it.time.shortHour() })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Heure par défaut d'un changement à heure libre", Modifier.weight(1f))
+                OutlinedButton(onClick = { showDefaultTime = true }) { Text(snap.settings.defaultTime.hhmm()) }
+            }
+            val sims = remember(resumeTick, phoneStateOk) { listSims(context) }
+            if (sims.size > 1) {
+                SimPicker(sims, snap.settings.subscriptionId) { id -> onEdit { it.copy(settings = it.settings.copy(subscriptionId = id)) } }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Bascule automatique", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Envoi USSD direct (expérimental)")
                     Text(
-                        if (snap.settings.enabled) "Active : le renvoi suit le planning."
-                        else "Désactivée : rien n'est envoyé à l'opérateur.",
+                        "À essayer seulement si la méthode par défaut (composition par le téléphone) ne marche pas. " +
+                            "Beaucoup de téléphones répondent « échec réseau/opérateur (code -1) » pour les codes de renvoi.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 Switch(
-                    checked = snap.settings.enabled,
-                    onCheckedChange = { wanted ->
-                        if (!wanted) {
-                            onEdit { it.copy(settings = it.settings.copy(enabled = false)) }
-                        } else if (!Perms.call(context)) {
-                            permLauncher.launch(requiredPermissions())
-                        } else {
-                            confirmEnable = true
-                        }
-                    },
+                    checked = snap.settings.useDirectUssd,
+                    onCheckedChange = { v -> onEdit { it.copy(settings = it.settings.copy(useDirectUssd = v)) } },
                 )
             }
-        }
 
-        // --- Autorisations ---
-        Text("Autorisations", style = MaterialTheme.typography.titleMedium)
-        PermRow("Téléphone (envoyer le code de renvoi)", callOk, required = true) {
-            permLauncher.launch(requiredPermissions())
-        }
-        PermRow("Notifications (confirmation / alerte d'échec)", notifOk, required = true) {
-            permLauncher.launch(requiredPermissions())
-        }
-        PermRow("Alarmes exactes (basculer à la minute près)", exactOk, required = true) {
-            context.startSafely(Perms.exactAlarmSettingsIntent(context))
-        }
-        PermRow("Batterie : ne pas restreindre l'app", batteryOk, required = false) {
-            context.startSafely(Perms.batteryIntent(context))
-        }
-        TextButton(onClick = { context.startSafely(Perms.appDetailsIntent(context)) }) {
-            Text("Ouvrir les réglages Android de l'app")
-        }
+            HorizontalDivider()
 
-        HorizontalDivider()
+            SmsSection(snap, resumeTick, onEdit)
 
-        // --- Préférences ---
-        Text("Préférences", style = MaterialTheme.typography.titleMedium)
-        OutlinedButton(onClick = { showSlots = true }, modifier = Modifier.fillMaxWidth()) {
-            Text("Horaires de la journée : " + snap.settings.slots.sortedBy { it.time }.joinToString(" ") { it.time.shortHour() })
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Heure par défaut d'un changement à heure libre", Modifier.weight(1f))
-            OutlinedButton(onClick = { showDefaultTime = true }) { Text(snap.settings.defaultTime.hhmm()) }
-        }
-        val sims = remember(resumeTick, phoneStateOk) { listSims(context) }
-        if (sims.size > 1) {
-            SimPicker(sims, snap.settings.subscriptionId) { id -> onEdit { it.copy(settings = it.settings.copy(subscriptionId = id)) } }
-        }
+            HorizontalDivider()
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Envoi USSD direct (expérimental)")
-                Text(
-                    "À essayer seulement si la méthode par défaut (composition par le téléphone) ne marche pas. " +
-                        "Beaucoup de téléphones répondent « échec réseau/opérateur (code -1) » pour les codes de renvoi.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            Switch(
-                checked = snap.settings.useDirectUssd,
-                onCheckedChange = { v -> onEdit { it.copy(settings = it.settings.copy(useDirectUssd = v)) } },
+            // --- Outils ---
+            Text("Outils de vérification", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "À essayer une fois avant de compter sur l'automatisme. Le téléphone compose le code et Android affiche lui-même la réponse de l'opérateur dans une fenêtre.",
+                style = MaterialTheme.typography.bodySmall,
             )
-        }
+            OutlinedButton(
+                enabled = callOk && !queryRunning,
+                onClick = {
+                    queryRunning = true
+                    Sender.send(context, Codes.QUERY, snap.settings) { r ->
+                        queryRunning = false
+                        queryResult = when (r) {
+                            is Ussd.Result.Ok -> r.text.ifBlank { "(réponse vide)" }
+                            is Ussd.Result.Fail -> "Échec : ${r.reason}"
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (queryRunning) "Interrogation…" else "Vérifier le renvoi actuellement en place") }
 
-        HorizontalDivider()
+            val current = Planner.currentShift(snap, Instant.now(), ZoneId.systemDefault())
+            OutlinedButton(
+                enabled = callOk && current != null,
+                onClick = { Relay.reconcile(context, Relay.Trigger.MANUAL, force = true) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Appliquer maintenant l'astreinte en cours") }
 
-        SmsSection(snap, resumeTick, onEdit)
+            OutlinedButton(
+                enabled = callOk,
+                onClick = { confirmDisableForwarding = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Désactiver le renvoi maintenant") }
 
-        HorizontalDivider()
+            HorizontalDivider()
 
-        // --- Outils ---
-        Text("Outils de vérification", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "À essayer une fois avant de compter sur l'automatisme. Le téléphone compose le code et Android affiche lui-même la réponse de l'opérateur dans une fenêtre.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        OutlinedButton(
-            enabled = callOk && !queryRunning,
-            onClick = {
-                queryRunning = true
-                Sender.send(context, Codes.QUERY, snap.settings) { r ->
-                    queryRunning = false
-                    queryResult = when (r) {
-                        is Ussd.Result.Ok -> r.text.ifBlank { "(réponse vide)" }
-                        is Ussd.Result.Fail -> "Échec : ${r.reason}"
+            // --- Journal ---
+            Text("Journal (les 20 derniers envois)", style = MaterialTheme.typography.titleMedium)
+            if (snap.log.isEmpty()) Text("Rien pour l'instant.", style = MaterialTheme.typography.bodySmall)
+            val fmt = remember { SimpleDateFormat("dd/MM HH:mm:ss", Locale.FRANCE) }
+            snap.log.take(20).forEach { e ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(
+                        if (e.ok) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                        contentDescription = if (e.ok) "Réussi" else "Échec",
+                        tint = if (e.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("${fmt.format(Date(e.at))} · ${e.trigger}", style = MaterialTheme.typography.labelMedium)
+                        Text(e.command, fontWeight = FontWeight.Bold)
+                        if (e.message.isNotBlank()) Text(e.message, style = MaterialTheme.typography.bodySmall)
                     }
                 }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (queryRunning) "Interrogation…" else "Vérifier le renvoi actuellement en place") }
-
-        val current = Planner.currentShift(snap, Instant.now(), ZoneId.systemDefault())
-        OutlinedButton(
-            enabled = callOk && current != null,
-            onClick = { Relay.reconcile(context, Relay.Trigger.MANUAL, force = true) },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Appliquer maintenant l'astreinte en cours") }
-
-        OutlinedButton(
-            enabled = callOk,
-            onClick = { confirmDisableForwarding = true },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-        ) { Text("Désactiver le renvoi maintenant") }
-
-        HorizontalDivider()
-
-        // --- Journal ---
-        Text("Journal (les 20 derniers envois)", style = MaterialTheme.typography.titleMedium)
-        if (snap.log.isEmpty()) Text("Rien pour l'instant.", style = MaterialTheme.typography.bodySmall)
-        val fmt = remember { SimpleDateFormat("dd/MM HH:mm:ss", Locale.FRANCE) }
-        snap.log.take(20).forEach { e ->
-            Row(verticalAlignment = Alignment.Top) {
-                Icon(
-                    if (e.ok) Icons.Filled.CheckCircle else Icons.Filled.Warning,
-                    contentDescription = if (e.ok) "Réussi" else "Échec",
-                    tint = if (e.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                )
-                Spacer(Modifier.width(8.dp))
-                Column {
-                    Text("${fmt.format(Date(e.at))} · ${e.trigger}", style = MaterialTheme.typography.labelMedium)
-                    Text(e.command, fontWeight = FontWeight.Bold)
-                    if (e.message.isNotBlank()) Text(e.message, style = MaterialTheme.typography.bodySmall)
-                }
             }
+        } else {
+            ViewerSettings(snap, resumeTick, callOk = notifOk, permLauncher = { permLauncher.launch(it) })
         }
     }
 
@@ -361,5 +367,37 @@ private fun Context.startSafely(intent: Intent) {
     } catch (e: Exception) {
         // Écran indisponible sur ce téléphone : on retombe sur la fiche de l'app
         runCatching { startActivity(Perms.appDetailsIntent(this).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
+}
+
+/** Réglages d'un téléphone en mode consultation : rien d'automatique, seulement l'état des autorisations. */
+@Composable
+private fun ViewerSettings(
+    snap: Snapshot,
+    resumeTick: Int,
+    callOk: Boolean,
+    permLauncher: (Array<String>) -> Unit,
+) {
+    val context = LocalContext.current
+    val sendOk = remember(resumeTick) { Perms.sendSms(context) }
+    val receiveOk = remember(resumeTick) { Perms.receiveSms(context) }
+    Text("Mode consultation", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Ce téléphone n'applique aucun renvoi d'appel et n'envoie aucun message automatique. " +
+            "Utilisez l'onglet « Synchro » pour échanger le planning avec le relais.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Text("Autorisations", style = MaterialTheme.typography.titleMedium)
+    PermRow("Envoyer des SMS (demandes au relais)", sendOk, required = true) {
+        permLauncher(arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.RECEIVE_SMS))
+    }
+    PermRow("Recevoir des SMS (réponses du relais)", receiveOk, required = true) {
+        permLauncher(arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.RECEIVE_SMS))
+    }
+    PermRow("Notifications (« planning à jour »)", callOk, required = false) {
+        if (Build.VERSION.SDK_INT >= 33) permLauncher(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+    }
+    TextButton(onClick = { context.startSafely(Perms.appDetailsIntent(context)) }) {
+        Text("Ouvrir les réglages Android de l'app")
     }
 }

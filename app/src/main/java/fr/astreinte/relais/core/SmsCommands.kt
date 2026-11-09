@@ -25,6 +25,21 @@ sealed interface SmsAction {
 
     /** « ? <jours> » : consultation du planning de ces jours (triés). */
     data class Plan(val dates: List<LocalDate>) : SmsAction
+
+    /** « SYNC <n° de demande> » : un téléphone consultant demande le planning complet. */
+    data class Sync(val id: String) : SmsAction
+
+    /**
+     * « PUSH <n°> <i>/<n> <modifications> » : un téléphone consultant envoie ses modifications
+     * (morceau [part] sur [total]). [error] non nul : le morceau est illisible, à signaler au demandeur.
+     */
+    data class Push(
+        val id: String,
+        val part: Int,
+        val total: Int,
+        val groups: List<EditGroup>,
+        val error: String? = null,
+    ) : SmsAction
     data class Edit(val groups: List<EditGroup>) : SmsAction
     data class Error(val why: String) : SmsAction
 }
@@ -57,8 +72,20 @@ object SmsCommands {
         return SmsParse.Command(tokens[1], tokens.drop(2))
     }
 
-    fun interpret(args: List<String>, doctors: List<Doctor>, slots: List<Slot>, today: LocalDate): SmsAction {
+    fun interpret(
+        args: List<String>,
+        doctors: List<Doctor>,
+        slots: List<Slot>,
+        today: LocalDate,
+        allowFreeTimes: Boolean = false,
+    ): SmsAction {
         if (args[0] == "?") return interpretQuery(args.drop(1), today)
+        if (args[0].equals("SYNC", ignoreCase = true)) {
+            val id = args.getOrNull(1)?.takeIf { it.matches(Regex("\\d{3,8}")) }
+                ?: return SmsAction.Error("Format : AST <PIN> SYNC <numéro>")
+            return SmsAction.Sync(id)
+        }
+        if (args[0].equals("PUSH", ignoreCase = true)) return interpretPush(args, doctors, slots, today)
 
         val groups = ArrayList<EditGroup>()
         var dates = LinkedHashSet<LocalDate>()
@@ -94,7 +121,7 @@ object SmsCommands {
                     val target = token.substringAfter('=').replace('_', ' ')
                     val time = parseSlotTime(slotRef)
                         ?: return SmsAction.Error("Créneau « $slotRef » illisible.")
-                    if (slots.none { it.time == time }) {
+                    if (!allowFreeTimes && slots.none { it.time == time }) {
                         val known = slots.sortedBy { it.time }.joinToString(" ") { shortHour(it.time) }
                         return SmsAction.Error("Pas de créneau ${shortHour(time)}. Créneaux : $known")
                     }
@@ -114,6 +141,19 @@ object SmsCommands {
         flush()?.let { return SmsAction.Error(it) }
         if (groups.isEmpty()) return SmsAction.Error("Aucune date indiquée.")
         return SmsAction.Edit(groups)
+    }
+
+    private fun interpretPush(args: List<String>, doctors: List<Doctor>, slots: List<Slot>, today: LocalDate): SmsAction {
+        val id = args.getOrNull(1)?.takeIf { it.matches(Regex("\\d{3,8}")) }
+        val part = args.getOrNull(2)?.let { Regex("^(\\d+)/(\\d+)$").matchEntire(it) }
+        if (id == null || part == null || args.size < 4) return SmsAction.Error("Format : AST <PIN> PUSH <numéro> <i>/<n> <modifications>")
+        val i = part.groupValues[1].toInt()
+        val n = part.groupValues[2].toInt()
+        return when (val inner = interpret(args.drop(3), doctors, slots, today, allowFreeTimes = true)) {
+            is SmsAction.Edit -> SmsAction.Push(id, i, n, inner.groups)
+            is SmsAction.Error -> SmsAction.Push(id, i, n, emptyList(), error = inner.why)
+            else -> SmsAction.Push(id, i, n, emptyList(), error = "Modifications attendues après PUSH")
+        }
     }
 
     private fun interpretQuery(rest: List<String>, today: LocalDate): SmsAction {

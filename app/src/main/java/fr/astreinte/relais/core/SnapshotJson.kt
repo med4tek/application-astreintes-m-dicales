@@ -9,46 +9,15 @@ import java.time.LocalTime
 object SnapshotJson {
 
     fun toJson(s: Snapshot): String = JSONObject().apply {
-        put("version", 1)
+        put("version", 2)
         put("doctors", JSONArray().apply {
             s.doctors.forEach {
                 put(JSONObject().put("id", it.id).put("name", it.name).put("phone", it.phone))
             }
         })
-        put("shifts", JSONArray().apply {
-            s.shifts.forEach {
-                put(
-                    JSONObject()
-                        .put("id", it.id)
-                        .put("date", it.date.toString())
-                        .put("time", it.time.toString())
-                        .put("doctorId", it.doctorId ?: JSONObject.NULL)
-                )
-            }
-        })
-        put(
-            "settings",
-            JSONObject()
-                .put("enabled", s.settings.enabled)
-                .put("defaultTime", s.settings.defaultTime.toString())
-                .put("subscriptionId", s.settings.subscriptionId)
-                .put("useDirectUssd", s.settings.useDirectUssd)
-                .put("slots", JSONArray().apply {
-                    s.settings.slots.forEach {
-                        put(
-                            JSONObject()
-                                .put("time", it.time.toString())
-                                .put("label", it.label)
-                                .put("default", it.defaultTargetId ?: JSONObject.NULL)
-                        )
-                    }
-                })
-                .put("smsEnabled", s.settings.smsEnabled)
-                .put("smsPin", s.settings.smsPin)
-                .put("smsExtraNumbers", s.settings.smsExtraNumbers)
-                .put("smsAllowDoctors", s.settings.smsAllowDoctors)
-                .put("smsReply", s.settings.smsReply)
-        )
+        put("shifts", shiftsToJson(s.shifts))
+        put("baseline", shiftsToJson(s.baseline))
+        put("settings", settingsToJson(s.settings))
         put(
             "state",
             JSONObject()
@@ -60,6 +29,8 @@ object SnapshotJson {
                 .put("lastSmsAt", s.state.lastSmsAt)
                 .put("lastSmsWasCommand", s.state.lastSmsWasCommand)
         )
+        put("sync", syncToJson(s.sync))
+        put("sentMessages", JSONArray(s.sentMessages))
         put("log", JSONArray().apply {
             s.log.forEach {
                 put(
@@ -81,34 +52,7 @@ object SnapshotJson {
         }
         // Le standard est toujours présent (migration des données d'une ancienne version comprise)
         val doctors = if (stored.any { it.id == STANDARD_ID }) stored else listOf(STANDARD_DOCTOR) + stored
-        val shifts = root.optJSONArray("shifts").toList { o ->
-            Shift(
-                id = o.getString("id"),
-                date = LocalDate.parse(o.getString("date")),
-                time = LocalTime.parse(o.getString("time")),
-                doctorId = if (o.isNull("doctorId")) null else o.getString("doctorId"),
-            )
-        }
-        val settings = root.optJSONObject("settings")?.let { o ->
-            Settings(
-                enabled = o.optBoolean("enabled", false),
-                defaultTime = o.optString("defaultTime", "08:00").let { LocalTime.parse(it) },
-                subscriptionId = o.optInt("subscriptionId", -1),
-                useDirectUssd = o.optBoolean("useDirectUssd", false),
-                slots = o.optJSONArray("slots")?.toList { so ->
-                    Slot(
-                        time = LocalTime.parse(so.getString("time")),
-                        label = so.optString("label", ""),
-                        defaultTargetId = if (so.isNull("default")) null else so.getString("default"),
-                    )
-                } ?: DEFAULT_SLOTS,
-                smsEnabled = o.optBoolean("smsEnabled", false),
-                smsPin = o.optString("smsPin", ""),
-                smsExtraNumbers = o.optString("smsExtraNumbers", ""),
-                smsAllowDoctors = o.optBoolean("smsAllowDoctors", true),
-                smsReply = o.optBoolean("smsReply", false),
-            )
-        } ?: Settings()
+        val settings = root.optJSONObject("settings")?.let { settingsFromJson(it) } ?: Settings()
         val state = root.optJSONObject("state")?.let { o ->
             ApplyState(
                 lastCommand = if (o.isNull("lastCommand")) null else o.getString("lastCommand"),
@@ -129,8 +73,144 @@ object SnapshotJson {
                 message = o.optString("message", ""),
             )
         }
-        return Snapshot(doctors, shifts, settings, state, log)
+        return Snapshot(
+            doctors = doctors,
+            shifts = shiftsFromJson(root.optJSONArray("shifts")),
+            settings = settings,
+            state = state,
+            log = log,
+            baseline = shiftsFromJson(root.optJSONArray("baseline")),
+            sync = root.optJSONObject("sync")?.let { syncFromJson(it) } ?: SyncState(),
+            sentMessages = root.optJSONArray("sentMessages")?.let { a -> (0 until a.length()).map { a.getString(it) } }
+                ?: emptyList(),
+        )
     }
+
+    // ------------------------------------------------------------------ morceaux
+
+    private fun shiftsToJson(shifts: List<Shift>) = JSONArray().apply {
+        shifts.forEach {
+            put(
+                JSONObject()
+                    .put("id", it.id)
+                    .put("date", it.date.toString())
+                    .put("time", it.time.toString())
+                    .put("doctorId", it.doctorId ?: JSONObject.NULL)
+            )
+        }
+    }
+
+    private fun shiftsFromJson(a: JSONArray?): List<Shift> = a.toList { o ->
+        Shift(
+            id = o.getString("id"),
+            date = LocalDate.parse(o.getString("date")),
+            time = LocalTime.parse(o.getString("time")),
+            doctorId = if (o.isNull("doctorId")) null else o.getString("doctorId"),
+        )
+    }
+
+    private fun settingsToJson(st: Settings) = JSONObject()
+        .put("enabled", st.enabled)
+        .put("defaultTime", st.defaultTime.toString())
+        .put("subscriptionId", st.subscriptionId)
+        .put("useDirectUssd", st.useDirectUssd)
+        .put("slots", JSONArray().apply {
+            st.slots.forEach {
+                put(
+                    JSONObject()
+                        .put("time", it.time.toString())
+                        .put("label", it.label)
+                        .put("default", it.defaultTargetId ?: JSONObject.NULL)
+                )
+            }
+        })
+        .put("smsEnabled", st.smsEnabled)
+        .put("smsPin", st.smsPin)
+        .put("smsExtraNumbers", st.smsExtraNumbers)
+        .put("smsAllowDoctors", st.smsAllowDoctors)
+        .put("smsReply", st.smsReply)
+        .put("mode", st.mode)
+        .put("relayNumber", st.relayNumber)
+        .put("msgEnabled", st.msgEnabled)
+        .put("msgRules", JSONArray().apply {
+            st.msgRules.forEach {
+                put(
+                    JSONObject()
+                        .put("id", it.id)
+                        .put("enabled", it.enabled)
+                        .put("at", it.at.toString())
+                        .put("slotTime", it.slotTime.toString())
+                        .put("confirmsSwitch", it.confirmsSwitch)
+                        .put("text", it.text)
+                )
+            }
+        })
+
+    private fun settingsFromJson(o: JSONObject) = Settings(
+        enabled = o.optBoolean("enabled", false),
+        defaultTime = o.optString("defaultTime", "08:00").let { LocalTime.parse(it) },
+        subscriptionId = o.optInt("subscriptionId", -1),
+        useDirectUssd = o.optBoolean("useDirectUssd", false),
+        slots = o.optJSONArray("slots")?.toList { so ->
+            Slot(
+                time = LocalTime.parse(so.getString("time")),
+                label = so.optString("label", ""),
+                defaultTargetId = if (so.isNull("default")) null else so.getString("default"),
+            )
+        } ?: DEFAULT_SLOTS,
+        smsEnabled = o.optBoolean("smsEnabled", false),
+        smsPin = o.optString("smsPin", ""),
+        smsExtraNumbers = o.optString("smsExtraNumbers", ""),
+        smsAllowDoctors = o.optBoolean("smsAllowDoctors", true),
+        smsReply = o.optBoolean("smsReply", false),
+        // Un fichier de réglages existant sans "mode" vient d'une version d'avant : c'était un relais
+        mode = if (o.has("mode")) o.optString("mode", Mode.NONE) else Mode.RELAY,
+        relayNumber = o.optString("relayNumber", ""),
+        msgEnabled = o.optBoolean("msgEnabled", false),
+        msgRules = o.optJSONArray("msgRules")?.toList { r ->
+            MessageRule(
+                id = r.getString("id"),
+                enabled = r.optBoolean("enabled", true),
+                at = LocalTime.parse(r.getString("at")),
+                slotTime = LocalTime.parse(r.getString("slotTime")),
+                confirmsSwitch = r.optBoolean("confirmsSwitch", false),
+                text = r.optString("text", ""),
+            )
+        } ?: DEFAULT_MESSAGE_RULES,
+    )
+
+    private fun syncToJson(sy: SyncState) = JSONObject()
+        .put("lastPullAt", sy.lastPullAt)
+        .put("lastPushAt", sy.lastPushAt)
+        .put("lastResult", sy.lastResult)
+        .put("pending", sy.pending?.let { p ->
+            JSONObject()
+                .put("kind", p.kind)
+                .put("id", p.id)
+                .put("startedAt", p.startedAt)
+                .put("total", p.total)
+                .put("cellsSent", p.cellsSent)
+                .put("chunks", JSONObject().apply { p.chunks.forEach { (k, v) -> put(k.toString(), v) } })
+                .put("pushedShifts", shiftsToJson(p.pushedShifts))
+        } ?: JSONObject.NULL)
+
+    private fun syncFromJson(o: JSONObject) = SyncState(
+        lastPullAt = o.optLong("lastPullAt", 0L),
+        lastPushAt = o.optLong("lastPushAt", 0L),
+        lastResult = o.optString("lastResult", ""),
+        pending = o.optJSONObject("pending")?.let { p ->
+            val chunks = p.optJSONObject("chunks")
+            PendingSync(
+                kind = p.getString("kind"),
+                id = p.getString("id"),
+                startedAt = p.optLong("startedAt", 0L),
+                total = p.optInt("total", 0),
+                cellsSent = p.optInt("cellsSent", 0),
+                chunks = chunks?.keys()?.asSequence()?.associate { it.toInt() to chunks.getString(it) } ?: emptyMap(),
+                pushedShifts = shiftsFromJson(p.optJSONArray("pushedShifts")),
+            )
+        },
+    )
 
     private fun <T> JSONArray?.toList(map: (JSONObject) -> T): List<T> {
         if (this == null) return emptyList()

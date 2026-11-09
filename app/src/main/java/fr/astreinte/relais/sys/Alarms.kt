@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import fr.astreinte.relais.core.Messages
 import fr.astreinte.relais.core.Planner
 import fr.astreinte.relais.core.Snapshot
 import java.time.Instant
@@ -27,14 +28,18 @@ object Alarms {
     fun scheduleNext(context: Context, snap: Snapshot) {
         val am = context.getSystemService(AlarmManager::class.java)
         val pi = pending(context, RC_SHIFT, ACTION_SHIFT)
-        val next = Planner.nextShift(snap, Instant.now(), ZoneId.systemDefault())
-        if (next == null) {
+        val zone = ZoneId.systemDefault()
+        val now = Instant.now()
+        val nextShift = Planner.nextShift(snap, now, zone)?.let { Planner.startOf(it, zone) }
+        // Le réveil sert aussi aux messages automatiques (2 s de marge : l'état du renvoi doit être à jour)
+        val nextMessage = Messages.nextDue(snap, now, zone)?.plusSeconds(2)
+        val at = listOfNotNull(nextShift, nextMessage).minOrNull()
+        if (at == null) {
             am.cancel(pi)
             return
         }
-        val at = Planner.startOf(next, ZoneId.systemDefault()).toEpochMilli()
-        set(am, at, pi)
-        Log.i(TAG, "Prochain changement programmé : ${next.date} ${next.time}")
+        set(am, at.toEpochMilli(), pi)
+        Log.i(TAG, "Prochain réveil programmé : $at")
     }
 
     fun scheduleRetry(context: Context, delayMs: Long) {
