@@ -41,6 +41,7 @@ Un SMS n'est pris en compte que si l'expéditeur est **autorisé** (médecins en
 | `AST 1234 ?` | répond avec l'état du renvoi |
 
 Le nom du médecin est reconnu sans titre ni accents (« martin » → Dr Martin) ; un nom ambigu est refusé. Si la modification touche l'astreinte en cours, le renvoi est appliqué immédiatement.
+**Attention RCS** : la commande doit partir en **vrai SMS**. Entre deux téléphones compatibles, Google Messages envoie en « chat » (RCS) sans prévenir, et l'app ne reçoit alors rien. Le message doit s'afficher « SMS » et non « Chat » ; sinon désactivez les fonctionnalités de chat. Le diagnostic des Réglages (date du dernier SMS vu) permet de le vérifier.
 **Sécurité** : le PIN voyage en clair par SMS et un numéro d'expéditeur peut être usurpé : choisissez un PIN que vous n'utilisez nulle part ailleurs.
 Android 13+ peut bloquer la permission SMS d'une app installée à la main : infos de l'app → ⋮ → « Autoriser les paramètres restreints ».
 
