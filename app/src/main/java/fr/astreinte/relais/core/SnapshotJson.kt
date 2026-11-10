@@ -168,6 +168,7 @@ object SnapshotJson {
                         .put("slotTime", it.slotTime.toString())
                         .put("confirmsSwitch", it.confirmsSwitch)
                         .put("text", it.text)
+                        .put("offDays", it.offDays)
                 )
             }
         })
@@ -197,15 +198,21 @@ object SnapshotJson {
         changeTextNew = o.optString("changeTextNew", DEFAULT_CHANGE_NEW),
         changeTextOld = o.optString("changeTextOld", DEFAULT_CHANGE_OLD),
         userName = o.optString("userName", ""),
-        msgRules = o.optJSONArray("msgRules")?.toList { r ->
-            MessageRule(
-                id = r.getString("id"),
-                enabled = r.optBoolean("enabled", true),
-                at = LocalTime.parse(r.getString("at")),
-                slotTime = LocalTime.parse(r.getString("slotTime")),
-                confirmsSwitch = r.optBoolean("confirmsSwitch", false),
-                text = r.optString("text", ""),
-            )
+        msgRules = o.optJSONArray("msgRules")?.let { arr ->
+            val rules = arr.toList { r ->
+                MessageRule(
+                    id = r.getString("id"),
+                    enabled = r.optBoolean("enabled", true),
+                    at = LocalTime.parse(r.getString("at")),
+                    slotTime = LocalTime.parse(r.getString("slotTime")),
+                    confirmsSwitch = r.optBoolean("confirmsSwitch", false),
+                    text = r.optString("text", ""),
+                    offDays = r.optBoolean("offDays", false),
+                )
+            }
+            // Fichier d'avant les règles « week-ends et fériés » : on ajoute le message de début de journée
+            val before = rules.isNotEmpty() && (0 until arr.length()).none { arr.getJSONObject(it).has("offDays") }
+            if (before) rules + DEFAULT_MESSAGE_RULES.filter { it.offDays } else rules
         } ?: DEFAULT_MESSAGE_RULES,
     )
 

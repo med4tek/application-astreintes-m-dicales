@@ -232,59 +232,128 @@ class HistoryTest {
 class PhotoDoctorsTest {
     private val slots = DEFAULT_SLOTS
 
-    @Test fun `la liste medecins du JSON est lue avec ses numeros`() {
+    @Test fun `la liste medecins du JSON est lue, noms seulement`() {
         val json = """```json
-{"month":"2026-11","medecins":[{"nom":"DUPONT Alice","telephone":"06 00 00 00 01"},{"nom":"Bruno Martin","telephone":""},
-{"nom":"Standard","telephone":"02 00 00 00 00"},"Claire ; 07.00.00.00.02"],
+{"month":"2026-11","medecins":[{"nom":"DUPONT Alice","telephone":"06 00 00 00 01"},{"nom":"Bruno Martin"},
+{"nom":"Standard"},"Claire","bruno  martin"],
 "days":[{"date":"2026-11-02","18:00":"Alice"}]}
 ```"""
         val r = ImportParser.parse(json, STAFF, slots)
+        // le numero eventuellement donne par l'assistant est ignore ; standard et doublons ecartes
         assertEquals(
             listOf(
-                DoctorList.Entry("Dupont Alice", "06 00 00 00 01"),
+                DoctorList.Entry("Dupont Alice", ""),
                 DoctorList.Entry("Bruno Martin", ""),
-                DoctorList.Entry(STANDARD_DOCTOR.name, "02 00 00 00 00"),
-                DoctorList.Entry("Claire", "07.00.00.00.02"),
+                DoctorList.Entry("Claire", ""),
             ),
             r.doctors,
         )
         assertEquals(1, r.items.size)
     }
 
-    @Test fun `un numero illisible est ignore, pas le medecin`() {
-        val r = ImportParser.parse("""{"medecins":[{"nom":"Zoe Test","telephone":"voir feuille"}],"days":[]}""", STAFF, slots)
-        assertEquals(listOf(DoctorList.Entry("Zoe Test", "")), r.doctors)
-    }
-
     @Test fun `des medecins sans jours sont acceptes, sans medecins ni jours c'est une erreur`() {
-        assertEquals(1, ImportParser.parse("""{"medecins":[{"nom":"Zoe Test","telephone":"0600000009"}]}""", STAFF, slots).doctors.size)
+        assertEquals(1, ImportParser.parse("""{"medecins":[{"nom":"Zoe Test"}]}""", STAFF, slots).doctors.size)
         assertTrue(ImportParser.parse("""{"month":"2026-11"}""", STAFF, slots).problems.isNotEmpty())
     }
 
-    @Test fun `fusion avec la liste existante - le standard est complete, rien n est ecrase`() {
-        val r = ImportParser.parse(
-            """{"medecins":[{"nom":"Standard","telephone":"02 00 00 00 00"},{"nom":"Alice Durand","telephone":"06 99 99 99 99"},{"nom":"Zoe Test","telephone":"0600000009"}],"days":[]}""",
-            STAFF, slots,
-        )
+    @Test fun `un medecin deja present n'est pas duplique et un nouveau est ajoute sans numero`() {
+        val r = ImportParser.parse("""{"medecins":[{"nom":"Alice Durand"},{"nom":"Zoe Test"}],"days":[]}""", STAFF, slots)
         val m = DoctorList.merge(STAFF, r.doctors) { "new" }
-        assertEquals(1, m.added); assertEquals(1, m.updated); assertEquals(1, m.unchanged)
-        assertEquals("02 00 00 00 00", m.doctors.first { it.id == STANDARD_ID }.phone)
+        assertEquals(1, m.added); assertEquals(0, m.updated); assertEquals(1, m.unchanged)
+        assertEquals("", m.doctors.first { it.id == "new" }.phone)
         assertEquals("0612345678", m.doctors.first { it.id == "a" }.phone)
     }
 
     @Test fun `un nouveau medecin lu sur la photo est reconnu dans le planning`() {
-        val json = """{"medecins":[{"nom":"Zoe Test","telephone":"0600000009"}],"days":[{"date":"2026-11-02","18:00":"Zoe"}]}"""
+        val json = """{"medecins":[{"nom":"Zoe Test"}],"days":[{"date":"2026-11-02","18:00":"Zoe"}]}"""
         val first = ImportParser.parse(json, STAFF, slots)
         val withNew = DoctorList.merge(STAFF, first.doctors) { "zz" }.doctors
         assertTrue(ImportParser.parse(json, STAFF, slots).items.single().target is Target.Unknown)
         assertEquals(Target.Doc("zz"), ImportParser.parse(json, withNew, slots).items.single().target)
     }
 
-    @Test fun `la consigne demande les noms et numeros lus sur la photo, sans les numeros de la liste`() {
+    @Test fun `la consigne demande les noms lus sur la photo, jamais de numeros`() {
         val p = PromptBuilder.build(java.time.YearMonth.of(2026, 11), STAFF, slots, "")
-        assertTrue(p.contains("\"medecins\"")); assertTrue(p.contains("\"telephone\""))
-        assertTrue(p.contains("JAMAIS un numéro"))
-        // les numéros déjà enregistrés dans l'app ne sont jamais envoyés à l'assistant
+        assertTrue(p.contains("\"medecins\"")); assertTrue(!p.contains("\"telephone\""))
+        assertTrue(p.contains("Ne recopie JAMAIS de numéro"))
         STAFF.forEach { if (it.phone.isNotBlank()) assertTrue(!p.contains(it.phone)) }
+        // les noms deja connus sont donnes a l'assistant
+        assertTrue(p.contains("Alice Durand") && p.contains("Bruno Martin"))
+    }
+}
+
+class OffDaysTest {
+    private val staff = STAFF
+    private fun d(y: Int, m: Int, day: Int) = java.time.LocalDate.of(y, m, day)
+
+    @Test fun `jours feries francais de 2026`() {
+        assertEquals(d(2026, 4, 5), Holidays.easter(2026))
+        listOf(d(2026, 1, 1), d(2026, 4, 6), d(2026, 5, 1), d(2026, 5, 8), d(2026, 5, 14), d(2026, 5, 25),
+            d(2026, 7, 14), d(2026, 8, 15), d(2026, 11, 1), d(2026, 11, 11), d(2026, 12, 25))
+            .forEach { assertTrue("$it", Holidays.isHoliday(it)) }
+        assertTrue(!Holidays.isHoliday(d(2026, 11, 12)))
+        assertEquals(d(2027, 3, 28), Holidays.easter(2027))
+    }
+
+    @Test fun `pas de standard par defaut un week-end ni un jour ferie`() {
+        val eff = Planner.effective(emptyList(), DEFAULT_SLOTS, d(2026, 11, 9), d(2026, 11, 15))
+        // lundi 9 .. vendredi 13 : 9h et 14h standard (le 11 est ferie) ; samedi 14 et dimanche 15 : rien
+        val days = eff.map { it.date }.distinct()
+        assertTrue(d(2026, 11, 14) !in days && d(2026, 11, 15) !in days && d(2026, 11, 11) !in days)
+        assertEquals(listOf(d(2026, 11, 9), d(2026, 11, 10), d(2026, 11, 12), d(2026, 11, 13)), days)
+    }
+
+    @Test fun `une seule personne saisie a 9h couvre toute la journee du week-end`() {
+        val sat = d(2026, 11, 14)
+        val shifts = listOf(Shift("1", sat, java.time.LocalTime.of(9, 0), "a"))
+        val zone = java.time.ZoneId.of("Europe/Paris")
+        val snap = Snapshot(doctors = staff, shifts = shifts, settings = Settings(mode = Mode.RELAY))
+        fun at(h: Int) = java.time.ZonedDateTime.of(sat, java.time.LocalTime.of(h, 0), zone).toInstant()
+        listOf(9, 12, 14, 17, 18, 23).forEach { assertEquals("a a ${it}h", "a", Planner.currentShift(snap, at(it), zone)?.doctorId) }
+        // lundi 9h : le standard reprend
+        val monday = java.time.ZonedDateTime.of(d(2026, 11, 16), java.time.LocalTime.of(9, 30), zone).toInstant()
+        assertEquals(STANDARD_ID, Planner.currentShift(snap, monday, zone)?.doctorId)
+    }
+
+    @Test fun `messages horaires seulement les jours ouvres, message de journee les jours chomes`() {
+        val zone = java.time.ZoneId.of("Europe/Paris")
+        val st = Settings(mode = Mode.RELAY, enabled = true, msgEnabled = true)
+        val sat = d(2026, 11, 14)
+        val snap = Snapshot(
+            doctors = staff,
+            shifts = listOf(Shift("1", sat, java.time.LocalTime.of(9, 0), "a")),
+            settings = st,
+            state = ApplyState(lastCommand = Codes.forDoctor(staff.first { it.id == "a" }), lastOk = true),
+        )
+        fun due(day: java.time.LocalDate, h: Int, min: Int = 5) =
+            Messages.due(snap, java.time.ZonedDateTime.of(day, java.time.LocalTime.of(h, min), zone).toInstant(), zone)
+        assertEquals(listOf("jour"), due(sat, 9).map { it.rule.id })
+        // un samedi, rien a 12h ni 17h ni 18h
+        listOf(12, 17, 18).forEach { assertTrue(due(sat, it).isEmpty()) }
+    }
+
+    @Test fun `l'import ramene la personne du week-end au premier creneau`() {
+        val json = """{"month":"2026-11","days":[{"date":"2026-11-14","18:00":"Alice"},{"date":"2026-11-15","12:00":"Alice","18:00":"Bruno"},{"date":"2026-11-16","18:00":"Alice"}]}"""
+        val items = ImportParser.parse(json, STAFF, DEFAULT_SLOTS).items
+        // samedi : ramenee a 9h ; dimanche : deux personnes, laisse tel quel ; lundi (ouvre) : intact
+        assertEquals(listOf("09:00"), items.filter { it.date == d(2026, 11, 14) }.map { it.time.toString() })
+        assertEquals(listOf("12:00", "18:00"), items.filter { it.date == d(2026, 11, 15) }.map { it.time.toString() })
+        assertEquals(listOf("18:00"), items.filter { it.date == d(2026, 11, 16) }.map { it.time.toString() })
+    }
+
+    @Test fun `la consigne liste les week-ends et feries du mois`() {
+        val p = PromptBuilder.build(java.time.YearMonth.of(2026, 11), STAFF, DEFAULT_SLOTS, "")
+        assertTrue(p.contains("WEEK-ENDS ET JOURS FÉRIÉS"))
+        assertTrue(p.contains("mer. 11 (férié)") && p.contains("sam. 14") && p.contains("\"09:00\""))
+    }
+
+    @Test fun `un ancien fichier recoit le message de journee, sans le dupliquer ensuite`() {
+        val old = """{"settings":{"mode":"RELAY","msgRules":[{"id":"midi","enabled":true,"at":"12:00","slotTime":"12:00","confirmsSwitch":true,"text":"x"}]}}"""
+        val s = SnapshotJson.fromJson(old)
+        assertEquals(listOf("midi", "jour"), s.settings.msgRules.map { it.id })
+        val again = SnapshotJson.fromJson(SnapshotJson.toJson(s))
+        assertEquals(listOf("midi", "jour"), again.settings.msgRules.map { it.id })
+        val deleted = SnapshotJson.fromJson(SnapshotJson.toJson(again.copy(settings = again.settings.copy(msgRules = again.settings.msgRules.filter { it.id != "jour" }))))
+        assertEquals(listOf("midi"), deleted.settings.msgRules.map { it.id })
     }
 }

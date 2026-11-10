@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import fr.astreinte.relais.core.Holidays
 import fr.astreinte.relais.core.CellEdit
 import fr.astreinte.relais.core.Planner
 import fr.astreinte.relais.core.Shift
@@ -85,8 +86,9 @@ private data class Cell(val text: String, val kind: CellKind)
 
 private fun newId() = UUID.randomUUID().toString()
 
-private fun defaultLabelFor(snap: Snapshot, slot: Slot): String =
-    slot.defaultTargetId?.let { "Par défaut : ${snap.doctor(it)?.name ?: "?"}" } ?: "Aucun changement"
+private fun defaultLabelFor(snap: Snapshot, slot: Slot, date: LocalDate? = null): String =
+    if (date != null && Holidays.isOffDay(date)) "Aucun changement (même personne toute la journée)"
+    else slot.defaultTargetId?.let { "Par défaut : ${snap.doctor(it)?.name ?: "?"}" } ?: "Aucun changement"
 
 private fun shortName(name: String) = name.replace(Regex("^(Docteur|Doc)\\.?\\s+", RegexOption.IGNORE_CASE), "Dr ")
 
@@ -186,12 +188,12 @@ fun PlanningScreen(
                 onAllMonth = { selected = selected + monthDays.map { it.toEpochDay() } },
                 onWeekends = {
                     selected = selected + monthDays.filter {
-                        it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY
+                        Holidays.isOffDay(it)
                     }.map { it.toEpochDay() }
                 },
                 onWeekdays = {
                     selected = selected + monthDays.filter {
-                        it.dayOfWeek != DayOfWeek.SATURDAY && it.dayOfWeek != DayOfWeek.SUNDAY
+                        !Holidays.isOffDay(it)
                     }.map { it.toEpochDay() }
                 },
                 onRange = { rangeStep = 1 },
@@ -227,6 +229,7 @@ fun PlanningScreen(
                     isToday = date == today,
                     cells = cellsByDate[date].orEmpty(),
                     extra = snap.shifts.count { s -> s.date == date && slots.none { it.time == s.time } },
+                    todo = Holidays.isOffDay(date) && !date.isBefore(LocalDate.now()) && snap.shifts.none { it.date == date },
                     selectMode = selectMode,
                     selected = date.toEpochDay() in selected,
                     onDayClick = { if (selectMode) toggle(date) else editingDay = date },
@@ -242,7 +245,7 @@ fun PlanningScreen(
             }
             item {
                 Text(
-                    "Fond coloré : saisi à la main · fond gris : valeur par défaut · texte pâle : hérité du créneau précédent",
+                    "Fond coloré : saisi à la main · fond gris : valeur par défaut · texte pâle : hérité du créneau précédent. Week-ends et jours fériés : une seule personne toute la journée (saisie à 9h), pas de standard.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),
@@ -432,8 +435,8 @@ private fun SelectionBar(
             Row(Modifier.horizontalScroll(rememberScrollState())) {
                 val pad = PaddingValues(horizontal = 8.dp)
                 TextButton(onClick = onAllMonth, contentPadding = pad) { Text("Tout le mois") }
-                TextButton(onClick = onWeekdays, contentPadding = pad) { Text("Lun–ven") }
-                TextButton(onClick = onWeekends, contentPadding = pad) { Text("Week-ends") }
+                TextButton(onClick = onWeekdays, contentPadding = pad) { Text("Jours ouvrés") }
+                TextButton(onClick = onWeekends, contentPadding = pad) { Text("WE + fériés") }
                 TextButton(onClick = onRange, contentPadding = pad) { Text("Période…") }
                 TextButton(onClick = onClear, enabled = count > 0, contentPadding = pad) { Text("Vider") }
             }
@@ -448,13 +451,16 @@ private fun DayRow(
     isToday: Boolean,
     cells: List<Cell>,
     extra: Int,
+    /** Week-end ou férié à venir sans personne désignée pour la journée. */
+    todo: Boolean,
     selectMode: Boolean,
     selected: Boolean,
     onDayClick: () -> Unit,
     onCellClick: (Int) -> Unit,
     onLongClick: () -> Unit,
 ) {
-    val weekend = date.dayOfWeek == DayOfWeek.SATURDAY || date.dayOfWeek == DayOfWeek.SUNDAY
+    val weekend = Holidays.isOffDay(date)
+    val holiday = Holidays.isHoliday(date)
     val scheme = MaterialTheme.colorScheme
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -484,6 +490,8 @@ private fun DayRow(
                 }
                 Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 if (extra > 0) Text("+$extra", fontSize = 10.sp, color = scheme.tertiary)
+                if (holiday && !todo) Text("férié", fontSize = 10.sp, color = scheme.tertiary)
+                if (todo) Text("à saisir", fontSize = 10.sp, color = scheme.error, fontWeight = FontWeight.Bold)
             }
             cells.forEachIndexed { i, cell ->
                 val (bg, fg) = when (cell.kind) {
@@ -526,7 +534,7 @@ private fun CellDialog(snap: Snapshot, date: LocalDate, slot: Slot, onDismiss: (
     val explicit = snap.shifts.firstOrNull { it.date == date && it.time == slot.time }
     val current: String? = if (explicit == null) KEY_DEFAULT else explicit.doctorId
     val options: List<Pair<String?, String>> =
-        listOf<Pair<String?, String>>(KEY_DEFAULT to defaultLabelFor(snap, slot)) +
+        listOf<Pair<String?, String>>(KEY_DEFAULT to defaultLabelFor(snap, slot, date)) +
             snap.doctors.map { it.id to it.name } +
             listOf<Pair<String?, String>>(null to "Aucun renvoi")
 
@@ -535,6 +543,15 @@ private fun CellDialog(snap: Snapshot, date: LocalDate, slot: Slot, onDismiss: (
         title = { Text("${date.shortLabel()} · ${slot.time.hhmm()}\n${slot.label}") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (Holidays.isOffDay(date)) {
+                    val first = snap.settings.slots.minOfOrNull { it.time }
+                    Text(
+                        "Week-end / jour férié : une seule personne pour toute la journée." +
+                            (if (first != null && slot.time != first) " Pour la désigner, modifiez plutôt le créneau de ${first.hhmm()} ; ici, vous ne faites qu'un changement en cours de journée." else " Les autres créneaux la reprennent, sauf modification."),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
                 options.forEach { (key, label) ->
                     Row(
                         Modifier.fillMaxWidth()
@@ -593,7 +610,7 @@ private fun DayEditorDialog(
                         doctors = snap.doctors,
                         value = choices[i],
                         onChange = { choices[i] = it },
-                        defaultLabel = defaultLabelFor(snap, slot),
+                        defaultLabel = defaultLabelFor(snap, slot, date),
                     )
                 }
                 if (customs.isNotEmpty()) {

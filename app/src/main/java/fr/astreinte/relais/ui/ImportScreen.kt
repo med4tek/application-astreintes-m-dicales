@@ -216,7 +216,7 @@ fun ImportScreen(
                     val skipped = r.items.size - edits.size
                     appliedMessage = "${edits.size} case(s) enregistrée(s) dans le planning" +
                         (if (skipped > 0) " ($skipped ignorée(s))" else "") + "." +
-                        (if (plan != null && (plan.added + plan.updated) > 0) " Médecins : ${plan.added} ajouté(s), ${plan.updated} numéro(s) complété(s)." else "") +
+                        (if (plan != null && plan.added > 0) " ${plan.added} médecin(s) ajouté(s) sans numéro : complétez-les dans l'onglet Médecins." else "") +
                         (if (created.isNotEmpty()) " ${created.size} médecin(s) ajouté(s) SANS numéro : complétez-les dans l'onglet Médecins." else "")
                     result = null
                     pasted = ""
@@ -252,7 +252,7 @@ private fun PreviewCard(
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("3. Vérification", style = MaterialTheme.typography.titleMedium)
-            val doctorsOnly = result.items.isEmpty() && docPlan != null && addDoctors && (docPlan.added + docPlan.updated) > 0
+            val doctorsOnly = result.items.isEmpty() && docPlan != null && addDoctors && docPlan.added > 0
             if (result.items.isEmpty()) {
                 Text(if (docPlan != null) "Aucune affectation de planning dans cette réponse." else "Aucune affectation reconnue.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
             } else {
@@ -269,19 +269,18 @@ private fun PreviewCard(
                     Column {
                         Text("Médecins lus sur la photo", fontWeight = FontWeight.Bold)
                         Text(
-                            "${docPlan.added} à ajouter · ${docPlan.updated} numéro(s) complété(s) · ${docPlan.unchanged} déjà présent(s)",
+                            "${docPlan.added} à ajouter (sans numéro) · ${docPlan.unchanged} déjà présent(s)",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }
                 if (addDoctors) {
                     val known = existingDoctors.associateBy { it.id }
-                    docPlan.doctors.filter { known[it.id] == null || (known[it.id]!!.phone.isBlank() && it.phone.isNotBlank()) }.forEach { d ->
-                        val tag = if (known[d.id] == null) "+" else "n°"
-                        Text("$tag ${d.name}" + if (d.phone.isBlank()) "  (sans numéro)" else "  ${d.phone}", style = MaterialTheme.typography.bodySmall)
+                    docPlan.doctors.filter { known[it.id] == null }.forEach { d ->
+                        Text("+ ${d.name}", style = MaterialTheme.typography.bodySmall)
                     }
                     Text(
-                        "Vérifiez les numéros lus par l'assistant : un chiffre faux enverrait le renvoi d'appel à la mauvaise personne.",
+                        "Les médecins sont ajoutés SANS numéro : complétez-les dans l'onglet Médecins (aucun renvoi ne part vers un médecin sans numéro).",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )

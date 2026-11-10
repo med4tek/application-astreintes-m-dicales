@@ -66,6 +66,8 @@ data class MessageRule(
     /** Si vrai : n'envoyer que lorsque la bascule vers ce médecin est effectivement faite. */
     val confirmsSwitch: Boolean,
     val text: String,
+    /** false : jours ouvrés seulement ; true : week-ends et jours fériés seulement (voir [Holidays.isOffDay]). */
+    val offDays: Boolean = false,
 )
 
 val DEFAULT_MESSAGE_RULES: List<MessageRule> = listOf(
@@ -84,6 +86,11 @@ val DEFAULT_MESSAGE_RULES: List<MessageRule> = listOf(
     MessageRule(
         "soir", true, LocalTime.of(18, 0), LocalTime.of(18, 0), true,
         "Bonjour {nom}, la bascule est faite : ton astreinte commence ({debut}-{fin})."
+    ),
+    MessageRule(
+        "jour", true, LocalTime.of(9, 0), LocalTime.of(9, 0), true,
+        "Bonjour {nom}, tu es d'astreinte toute la journee ({date}). La bascule vers ton numero est faite.",
+        offDays = true,
     ),
 )
 

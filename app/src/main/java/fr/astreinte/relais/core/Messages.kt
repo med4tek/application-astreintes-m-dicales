@@ -64,7 +64,9 @@ object Messages {
         val sent = snap.sentMessages.toSet()
         val out = ArrayList<DueMessage>()
         for (date in listOf(today.minusDays(1), today)) {
-            for (rule in st.msgRules.filter { it.enabled }) {
+            val offDay = Holidays.isOffDay(date)
+            // Un jour de week-end ou férié, seuls les messages « journée entière » partent (et inversement)
+            for (rule in st.msgRules.filter { it.enabled && it.offDays == offDay }) {
                 val dueAt = ZonedDateTime.of(date, rule.at, zone).toInstant()
                 if (dueAt.isAfter(now) || Duration.between(dueAt, now) > MAX_LATE) continue
                 // Un rappel annoncé à l'avance (envoyé avant le début du créneau) est périmé une fois le créneau commencé
@@ -88,8 +90,12 @@ object Messages {
         val st = snap.settings
         if (!st.isRelay || !st.enabled || !st.msgEnabled) return null
         val today = now.atZone(zone).toLocalDate()
+        // Chaque règle ne vaut que pour les jours ouvrés, ou que pour les week-ends et jours fériés
         return st.msgRules.filter { it.enabled }
-            .flatMap { r -> listOf(today, today.plusDays(1)).map { ZonedDateTime.of(it, r.at, zone).toInstant() } }
+            .flatMap { r ->
+                listOf(today, today.plusDays(1)).filter { Holidays.isOffDay(it) == r.offDays }
+                    .map { ZonedDateTime.of(it, r.at, zone).toInstant() }
+            }
             .filter { it.isAfter(now) }
             .minOrNull()
     }

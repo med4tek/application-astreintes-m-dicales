@@ -106,33 +106,50 @@ object ImportParser {
                 items += ImportItem(date, time, raw, classify(raw, doctors, aliases))
             }
         }
-        return ImportResult(items.sortedWith(compareBy({ it.date }, { it.time })), problems, photoDoctors)
+        val firstSlot = slots.minOfOrNull { it.time }
+        val normalized = if (firstSlot == null) items else wholeDayOnOffDays(items, firstSlot)
+        return ImportResult(normalized.sortedWith(compareBy({ it.date }, { it.time })), problems, photoDoctors)
     }
 
     /**
-     * Liste « medecins » du JSON : [{"nom": "...", "telephone": "..."}] (ou simples chaînes « Nom ; numéro »).
-     * Un numéro illisible est ignoré (le médecin est alors ajouté sans numéro). « Standard… » désigne
-     * toujours la fiche Standard existante.
+     * Week-end ou jour férié : une seule personne pour toute la journée. Si l'assistant l'a placée
+     * sur un autre créneau que le premier (ex. la colonne « Garde » à 18h) et que toutes les cases du
+     * jour désignent la même personne, elle est ramenée au premier créneau (début de la journée).
+     */
+    internal fun wholeDayOnOffDays(items: List<ImportItem>, firstSlot: LocalTime): List<ImportItem> {
+        fun same(a: Target, b: Target) = when {
+            a is Target.Unknown && b is Target.Unknown -> NameMatcher.normalize(a.name) == NameMatcher.normalize(b.name)
+            else -> a == b
+        }
+        val out = ArrayList<ImportItem>()
+        for ((date, day) in items.groupBy { it.date }) {
+            val single = Holidays.isOffDay(date) && day.none { it.time == firstSlot } &&
+                day.all { same(it.target, day.first().target) }
+            if (single) out += day.first().copy(time = firstSlot) else out += day
+        }
+        return out
+    }
+
+    /**
+     * Liste « medecins » du JSON : [{"nom": "..."}] (ou simples chaînes). Seuls les NOMS sont retenus :
+     * un numéro éventuellement donné par l'assistant est volontairement ignoré (les numéros se saisissent
+     * à la main, un chiffre mal lu enverrait le renvoi d'appel à la mauvaise personne). Le standard et
+     * les doublons sont écartés.
      */
     internal fun parseDoctors(root: JSONObject): List<DoctorList.Entry> {
         val arr = listOf("medecins", "médecins", "doctors", "contacts").firstNotNullOfOrNull { root.optJSONArray(it) }
             ?: return emptyList()
-        val lines = ArrayList<String>()
+        val names = ArrayList<String>()
         for (i in 0 until arr.length()) {
             when (val o = arr.opt(i)) {
-                is JSONObject -> {
-                    val name = listOf("nom", "name", "medecin", "médecin").firstNotNullOfOrNull { k -> o.optString(k).takeIf { it.isNotBlank() } }
-                    val phone = listOf("telephone", "téléphone", "tel", "tél", "phone", "numero", "numéro", "portable")
-                        .firstNotNullOfOrNull { k -> o.optString(k).takeIf { it.isNotBlank() } }.orEmpty()
-                    if (name != null) lines += "${name.replace(';', ' ')} ; $phone"
-                }
-                is String -> lines += o
+                is JSONObject -> listOf("nom", "name", "medecin", "médecin").firstNotNullOfOrNull { k -> o.optString(k).takeIf { it.isNotBlank() } }?.let { names += it }
+                is String -> names += o
             }
         }
-        return DoctorList.parse(lines.joinToString("\n")).map { e ->
-            if (NameMatcher.normalize(e.name).startsWith("standard")) e.copy(name = STANDARD_DOCTOR.name)
-            else e.copy(name = DoctorList.prettyName(e.name))
-        }.distinctBy { NameMatcher.normalize(it.name) }
+        return names.map { it.substringBefore(';').replace(Regex("\\s+"), " ").trim() }
+            .filter { it.isNotEmpty() && !NameMatcher.normalize(it).startsWith("standard") }
+            .map { DoctorList.Entry(DoctorList.prettyName(it), "") }
+            .distinctBy { NameMatcher.normalize(it.name) }
     }
 
     /** Résultat d'import -> modifications de cases ; [mapping] associe les noms inconnus à un médecin. */
@@ -222,7 +239,7 @@ object PromptBuilder {
 
         val slotLines = slots.sortedBy { it.time }.joinToString("\n") { s ->
             val def = s.defaultTargetId?.let { id -> doctors.firstOrNull { it.id == id }?.name }
-            val suffix = if (def != null) " — par défaut : $def (à renseigner seulement si le planning indique autre chose)" else ""
+            val suffix = if (def != null) " — par défaut : $def (à renseigner seulement si le planning indique autre chose ; jamais par défaut les week-ends et jours fériés)" else ""
             "- \"${s.time}\" : ${s.label}$suffix"
         }
         val example = exampleJson(month, names.take(3), slots)
@@ -236,6 +253,15 @@ object PromptBuilder {
             appendLine()
             appendLine("Associe chaque colonne ou ligne de la photo au créneau qui correspond (d'après son intitulé ou son horaire).")
             appendLine()
+            val off = Holidays.offDays(month)
+            val first = slots.minOfOrNull { it.time }
+            if (off.isNotEmpty() && first != null) {
+                val fmt = DateTimeFormatter.ofPattern("EEE d", Locale.FRENCH)
+                appendLine("WEEK-ENDS ET JOURS FÉRIÉS")
+                appendLine("Ce mois-ci : " + off.joinToString(", ") { d -> fmt.format(d) + (Holidays.holidayName(d)?.let { " (férié)" } ?: "") } + ".")
+                appendLine("Ces jours-là, UNE SEULE personne couvre toute la journée : pas de standard à 9h ni à 14h. S'il n'y a qu'un nom pour le jour, mets-le uniquement sur le premier créneau (\"$first\"), quelle que soit la colonne où il figure sur la photo. N'ajoute un autre créneau que si le planning désigne explicitement un autre médecin à une heure précise. Applique la même règle à tout autre jour férié que tu verrais sur le planning.")
+                appendLine()
+            }
             appendLine("MÉDECINS CONNUS")
             if (names.isEmpty()) appendLine("(aucun pour l'instant)") else appendLine(names.joinToString(", "))
             if (standard != null) appendLine("Le « ${standard.name} » désigne le standard d'urgence : écris exactement « ${standard.name} » s'il est indiqué.")
@@ -247,12 +273,12 @@ object PromptBuilder {
                 appendLine(notes.trim())
             }
             appendLine()
-            appendLine("MÉDECINS ET NUMÉROS LUS SUR LA PHOTO")
-            appendLine("Si la photo indique des médecins (liste, légende, contacts, bas de page…), donne-les dans une liste \"medecins\" : un objet par médecin avec son \"nom\" et son \"telephone\".")
-            appendLine("- Inclus TOUS les médecins dont tu lis le nom, même ceux de la liste ci-dessus (cela permet de compléter leur numéro).")
-            appendLine("- \"nom\" : le nom EXACT de la liste ci-dessus si c'est le même médecin, sinon le nom tel qu'il est écrit (prénom et nom s'ils figurent tous les deux).")
-            appendLine("- \"telephone\" : le numéro tel qu'il est écrit sur la photo, chiffre par chiffre. Si le numéro est absent ou illisible, mets \"\". N'invente et ne devine JAMAIS un numéro.")
-            appendLine("- Pour le standard, utilise le nom « Standard »; un numéro de service ou d'astreinte (non rattaché à une personne) peut figurer avec son intitulé (ex. « Astreinte site B »).")
+            appendLine("MÉDECINS LUS SUR LA PHOTO")
+            appendLine("Donne aussi la liste des médecins dont tu lis le nom sur la photo (planning, légende, liste…), dans une liste \"medecins\" : un objet par médecin avec son \"nom\".")
+            appendLine("- Inclus TOUS les médecins dont tu lis le nom, même ceux de la liste ci-dessus (l'application s'en sert pour faire le lien entre les noms du planning et sa liste).")
+            appendLine("- \"nom\" : le nom EXACT de la liste ci-dessus si c'est le même médecin, sinon le nom tel qu'il est écrit, avec prénom ET nom quand les deux figurent sur la photo.")
+            appendLine("- Ne recopie JAMAIS de numéro de téléphone : les numéros sont saisis à la main dans l'application.")
+            appendLine("- Ne mets pas le standard ni un lieu dans cette liste.")
             appendLine()
             appendLine("FORMAT DE RÉPONSE")
             appendLine("Réponds UNIQUEMENT par UN SEUL bloc de code JSON (balises ```json), sans aucun commentaire avant ou après :")
@@ -263,7 +289,7 @@ object PromptBuilder {
             appendLine("- N'inclus un créneau que si le planning le renseigne pour ce jour. Sinon omets la clé (ne devine rien).")
             appendLine("- Si une case est illisible ou douteuse, omets-la plutôt que d'inventer.")
             appendLine("- Écris \"AUCUN\" si le planning indique explicitement qu'il n'y a pas de renvoi à ce créneau.")
-            appendLine("- Dans \"days\", ne mets que des noms (jamais de numéros) : les numéros vont uniquement dans la liste \"medecins\".")
+            appendLine("- Ne mets que des noms de personnes, jamais de numéros de téléphone.")
         }.trimEnd()
     }
 
@@ -278,7 +304,7 @@ object PromptBuilder {
                 (if (parts.isEmpty()) "" else ", " + parts.joinToString(", ")) + "}"
         }
         return "{\n  \"month\": \"$month\",\n" +
-            "  \"medecins\": [\n    {\"nom\": \"$a\", \"telephone\": \"06 00 00 00 01\"},\n    {\"nom\": \"$b\", \"telephone\": \"\"}\n  ],\n" +
+            "  \"medecins\": [\n    {\"nom\": \"$a\"},\n    {\"nom\": \"$b\"}\n  ],\n" +
             "  \"days\": [\n" +
             day(1, listOf(a, b, c)) + ",\n" + day(2, listOf(b, c, a)) + "\n  ]\n}"
     }

@@ -8,7 +8,8 @@ Application Android personnelle (hors Play Store) qui change toute seule le **re
 
 1. **Médecins** : ajoutez chaque médecin avec son numéro. La fiche **Standard** existe d'office (utilisée par défaut à 9h et 14h) mais **sans numéro** : saisissez-le une fois sur le téléphone relais (onglet Médecins → Standard). Les téléphones de consultation le reçoivent par synchronisation. Vous pouvez le changer ensuite (jour férié, etc.).
 2. **Planning** : une grille, une ligne par jour, une colonne par créneau de la journée (par défaut **9h, 12h, 14h, 17h, 18h**).
-   - **9h et 14h** : standard par défaut, sans rien saisir. Pour un jour particulier (férié…), touchez la case et choisissez autre chose.
+   - **9h et 14h** : standard par défaut les jours ouvrés, sans rien saisir. Pour un jour particulier, touchez la case et choisissez autre chose.
+   - **Week-ends et jours fériés** (calculés par l'app, métropole) : **une seule personne pour toute la journée**, pas de standard. Touchez la case de **9h** et choisissez le médecin : il couvre toute la journée (jusqu'au prochain changement, donc jusqu'au lundi 9h où le standard reprend). Une modification en cours de journée se fait case par case. Un week-end ou férié à venir sans personne saisie est marqué **« à saisir »** ; en attendant, c'est l'astreinte de la veille au soir qui continue.
    - **12h, 17h, 18h** : touchez la case, choisissez le médecin. L'astreinte de 18h dure jusqu'au lendemain 9h, où le standard reprend tout seul.
    - Touchez le **numéro du jour** pour éditer toute la journée (et ajouter un changement à une heure libre).
    - Fond coloré = saisi à la main ; fond gris = valeur par défaut ; texte pâle = hérité du créneau précédent.
@@ -22,7 +23,7 @@ Application Android personnelle (hors Play Store) qui change toute seule le **re
 1. Onglet **Import** : choisissez le mois, ajoutez au besoin des précisions (« la colonne Garde = 18:00 »), puis **Copier** ou **Partager…** la consigne.
 2. Envoyez la consigne **avec la photo** à un assistant IA (Claude, ChatGPT…). Il répond par un bloc JSON.
 3. Collez la réponse dans l'app, **Analyser** : un aperçu jour par jour s'affiche. Les noms non reconnus se rattachent à un médecin de votre liste (ou s'ignorent, ou deviennent un nouveau médecin).
-   La consigne demande aussi à l'assistant de **recopier les médecins et leurs numéros lus sur la photo** : l'aperçu propose de les ajouter à la liste (ou de compléter un numéro manquant, par exemple celui du Standard). Un numéro déjà enregistré n'est jamais écrasé, et les numéros de votre liste ne sont jamais envoyés à l'assistant. **Relisez les numéros** : un LLM peut se tromper d'un chiffre.
+   La consigne donne à l'assistant les noms (prénom et nom) des médecins déjà enregistrés et lui demande la liste de ceux qu'il lit sur la photo : l'aperçu propose d'**ajouter les nouveaux, sans numéro** (à compléter à la main dans l'onglet Médecins). Les **numéros de téléphone ne sont jamais demandés à l'assistant** ni envoyés avec la consigne. Les correspondances que vous validez (« Alice » = tel médecin) sont mémorisées pour les imports suivants.
 4. **Appliquer** : seuls les créneaux présents dans la réponse sont remplacés. Relisez toujours le résultat dans le Planning : un LLM peut mal lire une photo.
 
 ## Commande par SMS (optionnelle, désactivée par défaut)
@@ -111,6 +112,9 @@ Consultable et partageable dans **Réglages → Historique des modifications du 
 | 17h | médecin de 17h | « Tu es d'astreinte cet après-midi (17h-18h). La bascule est faite. » |
 | 17h | médecin de **18h** | « Rappel : tu es d'astreinte ce soir à partir de 18h jusqu'à demain 9h. » |
 | 18h | médecin de 18h | « La bascule est faite : ton astreinte commence (18h-demain 9h). » |
+| 9h, **week-ends et fériés seulement** | médecin du jour | « Tu es d'astreinte toute la journée. La bascule vers ton numéro est faite. » |
+
+Les quatre premiers ne partent que les jours ouvrés, le dernier que les week-ends et jours fériés (réglable message par message).
 
 - Les messages « bascule faite » ne partent que lorsque le renvoi vers ce médecin est **réellement en place**.
 - Chacun est activable, modifiable (texte, heure, créneau visé) ; variables `{nom}` `{debut}` `{fin}` `{date}`.

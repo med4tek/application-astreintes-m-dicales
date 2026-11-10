@@ -461,6 +461,7 @@ fun MessagesSection(snap: Snapshot, resumeTick: Int, onEdit: ((Snapshot) -> Snap
                 Column(Modifier.weight(1f)) {
                     Text(
                         "${Messages.hourText(rule.at)} → médecin du créneau ${Messages.hourText(rule.slotTime)}" +
+                            (if (rule.offDays) " · week-ends et fériés" else " · jours ouvrés") +
                             if (rule.confirmsSwitch) " (si bascule faite)" else "",
                         fontWeight = FontWeight.Bold,
                     )
@@ -568,6 +569,7 @@ private fun MessageRuleDialog(
     var at by remember { mutableStateOf(initial.at) }
     var slotTime by remember { mutableStateOf(initial.slotTime) }
     var confirms by remember { mutableStateOf(initial.confirmsSwitch) }
+    var offDays by remember { mutableStateOf(initial.offDays) }
     var text by remember { mutableStateOf(initial.text) }
     var pickAt by remember { mutableStateOf(false) }
     var slotMenu by remember { mutableStateOf(false) }
@@ -600,6 +602,10 @@ private fun MessageRuleDialog(
                     Text("Seulement si la bascule vers lui est faite", Modifier.weight(1f))
                     Switch(checked = confirms, onCheckedChange = { confirms = it })
                 }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Week-ends et jours fériés (sinon : jours ouvrés)", Modifier.weight(1f))
+                    Switch(checked = offDays, onCheckedChange = { offDays = it })
+                }
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -625,7 +631,7 @@ private fun MessageRuleDialog(
         confirmButton = {
             Button(
                 enabled = text.isNotBlank(),
-                onClick = { onSave(initial.copy(at = at, slotTime = slotTime, confirmsSwitch = confirms, text = text.trim())) },
+                onClick = { onSave(initial.copy(at = at, slotTime = slotTime, confirmsSwitch = confirms, offDays = offDays, text = text.trim())) },
             ) { Text("Enregistrer") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },

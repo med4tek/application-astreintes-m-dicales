@@ -46,7 +46,8 @@ object Planner {
 
     /**
      * Changements saisis + changements par défaut des créneaux types, de [from] à [to] inclus.
-     * Un défaut n'est généré que si aucun changement saisi n'existe à la même date et heure.
+     * Un défaut n'est généré que si aucun changement saisi n'existe à la même date et heure, et jamais
+     * un week-end ou un jour férié ([Holidays.isOffDay]).
      * Les changements saisis hors de la fenêtre sont conservés tels quels. Résultat trié.
      */
     fun effective(shifts: List<Shift>, slots: List<Slot>, from: LocalDate, to: LocalDate): List<Shift> {
@@ -54,6 +55,9 @@ object Planner {
         val defaults = ArrayList<Shift>()
         var d = from
         while (!d.isAfter(to)) {
+            // Week-ends et jours fériés : une seule personne pour toute la journée, saisie à la main ;
+            // pas de standard par défaut (le standard ne répond pas ces jours-là)
+            if (Holidays.isOffDay(d)) { d = d.plusDays(1); continue }
             for (slot in slots) {
                 val target = slot.defaultTargetId ?: continue
                 if ((d to slot.time) !in taken) {

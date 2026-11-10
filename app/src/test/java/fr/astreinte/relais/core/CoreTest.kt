@@ -445,12 +445,12 @@ class SmsCommandsTest {
             ),
             settings = Settings(enabled = true),
         )
-        val text = SmsCommands.planText(snap, listOf(d("2026-11-09"), d("2026-11-10"), d("2026-11-11")), PARIS)
+        val text = SmsCommands.planText(snap, listOf(d("2026-11-09"), d("2026-11-10"), d("2026-11-12")), PARIS)
         assertEquals(
             "lun 09/11: 9h STD 12h Alice 14h STD 17h STD 18h Alice\n" +
                 "mar 10/11: 9h STD 12h OFF 14h STD 17h STD 18h Zoé\n" +
-                // le 11/11 : rien de saisi, l'astreinte du 10 au soir court jusqu'à 9h puis standard
-                "mer 11/11: 9h STD 12h STD 14h STD 17h STD 18h STD",
+                // le 12/11 : rien de saisi, l'astreinte du 10 au soir court jusqu'à 9h puis standard
+                "jeu 12/11: 9h STD 12h STD 14h STD 17h STD 18h STD",
             text
         )
         assertTrue(SmsCommands.planText(snap.copy(settings = Settings(enabled = false)), listOf(d("2026-11-09")), PARIS).contains("désactivée"))
