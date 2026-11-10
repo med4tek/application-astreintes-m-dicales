@@ -356,6 +356,14 @@ class OffDaysTest {
         assertEquals(listOf("18:00"), items.filter { it.date == d(2026, 11, 16) }.map { it.time.toString() })
     }
 
+    @Test fun `l'exemple de la consigne respecte les regles (jours ouvres puis un week-end sur 9h seulement)`() {
+        val p = PromptBuilder.build(java.time.YearMonth.of(2026, 11), STAFF, DEFAULT_SLOTS, "")
+        val example = p.substringAfter("FORMAT DE RÉPONSE").substringBefore("RÈGLES")
+        assertTrue(example.contains("\"date\": \"2026-11-01\", \"09:00\""))      // dimanche ferie : 9h seulement
+        assertTrue(example.contains("\"date\": \"2026-11-02\", \"12:00\""))      // lundi : 12h, 17h, 18h
+        assertTrue(!example.contains("\"2026-11-02\", \"09:00\""))
+    }
+
     @Test fun `la consigne liste les week-ends et feries du mois`() {
         val p = PromptBuilder.build(java.time.YearMonth.of(2026, 11), STAFF, DEFAULT_SLOTS, "")
         assertTrue(p.contains("WEEK-ENDS ET JOURS FÉRIÉS"))

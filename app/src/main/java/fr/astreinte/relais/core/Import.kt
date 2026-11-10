@@ -309,15 +309,23 @@ WEEK-ENDS ET JOURS FÉRIÉS : un seul médecin pour la journée, celui dont la c
         val a = names.getOrNull(0) ?: "Dr Martin"
         val b = names.getOrNull(1) ?: "Dr Dupont"
         val c = names.getOrNull(2) ?: a
-        val noDefault = slots.sortedBy { it.time }.filter { it.defaultTargetId == null }
-        fun day(day: Int, who: List<String>): String {
-            val parts = noDefault.mapIndexed { i, s -> "\"${s.time}\": \"${who[i % who.size]}\"" }
-            return "    {\"date\": \"${month.atDay(day.coerceAtMost(month.lengthOfMonth()))}\"" +
-                (if (parts.isEmpty()) "" else ", " + parts.joinToString(", ")) + "}"
+        val sorted = slots.sortedBy { it.time }
+        val noDefault = sorted.filter { it.defaultTargetId == null }
+        val days = (1..month.lengthOfMonth()).map { month.atDay(it) }
+        // Exemple conforme aux règles : deux jours ouvrés (créneaux sans valeur par défaut) puis un jour de week-end
+        // ou férié (une seule personne, sur le premier créneau seulement)
+        val work = days.filter { !Holidays.isOffDay(it) }.take(2)
+        val off = days.firstOrNull { Holidays.isOffDay(it) }
+        fun workDay(date: java.time.LocalDate, who: List<String>): String {
+            val parts = noDefault.mapIndexed { i, sl -> "\"${sl.time}\": \"${who[i % who.size]}\"" }
+            return "    {\"date\": \"$date\"" + (if (parts.isEmpty()) "" else ", " + parts.joinToString(", ")) + "}"
         }
+        val lines = ArrayList<Pair<java.time.LocalDate, String>>()
+        work.getOrNull(0)?.let { lines += it to workDay(it, listOf(a, b, c)) }
+        work.getOrNull(1)?.let { lines += it to workDay(it, listOf(b, c, a)) }
+        if (off != null && sorted.isNotEmpty()) lines += off to "    {\"date\": \"$off\", \"${sorted.first().time}\": \"$c\"}"
         return "{\n  \"month\": \"$month\",\n" +
             "  \"medecins\": [\n    {\"nom\": \"$a\"},\n    {\"nom\": \"$b\"}\n  ],\n" +
-            "  \"days\": [\n" +
-            day(1, listOf(a, b, c)) + ",\n" + day(2, listOf(b, c, a)) + "\n  ]\n}"
+            "  \"days\": [\n" + lines.sortedBy { it.first }.joinToString(",\n") { it.second } + "\n  ]\n}"
     }
 }
