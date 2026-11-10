@@ -47,6 +47,7 @@ import fr.astreinte.relais.core.ImportParser
 import fr.astreinte.relais.core.ImportResult
 import fr.astreinte.relais.core.Planner
 import fr.astreinte.relais.core.PromptBuilder
+import fr.astreinte.relais.core.STANDARD_ID
 import fr.astreinte.relais.core.Snapshot
 import fr.astreinte.relais.core.Target
 import java.time.LocalDate
@@ -79,13 +80,30 @@ fun ImportScreen(
     var photoDoctors by remember { mutableStateOf<List<DoctorList.Entry>>(emptyList()) }
     var idPool by remember { mutableStateOf<List<String>>(emptyList()) }
     var addDoctors by remember { mutableStateOf(true) }
+    // nom lu sur la photo -> médecin existant choisi (KEY_NEW = ajouter, KEY_KEEP = ignorer)
+    var docChoice by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
 
     fun idGen(): () -> String {
         val it = idPool.iterator()
         return { if (it.hasNext()) it.next() else UUID.randomUUID().toString() }
     }
-    fun mergedDoctors(base: List<Doctor>, withPhoto: Boolean): List<Doctor> =
-        if (withPhoto && photoDoctors.isNotEmpty()) DoctorList.merge(base, photoDoctors, idGen()).doctors else base
+    // Les noms de la photo que la liste ne reconnaît pas (ex. « Dr Durand » alors que l'app connaît « Alice »)
+    fun unmatched(base: List<Doctor>) = photoDoctors.filter { NameMatcher.find(it.name, base) == null }
+    fun choiceOf(e: DoctorList.Entry): String = docChoice[e.name] ?: KEY_NEW
+    /** Liste de médecins après l'import : noms complétés pour les liens choisis, nouveaux médecins ajoutés. */
+    fun mergedDoctors(base: List<Doctor>, withPhoto: Boolean): List<Doctor> {
+        if (!withPhoto || photoDoctors.isEmpty()) return base
+        var list = base
+        val toAdd = ArrayList<DoctorList.Entry>()
+        for (e in unmatched(base)) {
+            when (val c = choiceOf(e)) {
+                KEY_KEEP -> {}
+                KEY_NEW -> toAdd += e
+                else -> list = list.map { if (it.id == c) it.copy(name = DoctorList.completeName(it.name, e.name)) else it }
+            }
+        }
+        return DoctorList.merge(list, toAdd, idGen()).doctors
+    }
     fun analyze(withPhoto: Boolean) {
         result = ImportParser.parse(pasted, mergedDoctors(snap.doctors, withPhoto), snap.settings.slots, snap.aliases)
     }
@@ -173,6 +191,7 @@ fun ImportScreen(
                             photoDoctors = ImportParser.parse(pasted, snap.doctors, snap.settings.slots, snap.aliases).doctors
                             idPool = photoDoctors.map { UUID.randomUUID().toString() }
                             addDoctors = true
+                            docChoice = emptyMap()
                             analyze(true)
                             mapping = emptyMap()
                             appliedMessage = null
@@ -185,16 +204,19 @@ fun ImportScreen(
 
         // ---------------------------------------------------------------- étape 3 : aperçu
         result?.let { r ->
-            val docPlan = if (photoDoctors.isEmpty()) null else DoctorList.merge(snap.doctors, photoDoctors, idGen())
+            val photoUnmatched = unmatched(snap.doctors)
             PreviewCard(
                 snap = snap.copy(doctors = mergedDoctors(snap.doctors, addDoctors)),
                 result = r,
                 mapping = mapping,
                 onMap = { name, id -> mapping = mapping + (name to id) },
-                docPlan = docPlan,
-                existingDoctors = snap.doctors,
+                photoDoctorCount = photoDoctors.size,
+                photoUnmatched = photoUnmatched,
+                docChoice = { choiceOf(it) },
+                pickerDoctors = snap.doctors.filter { it.id != STANDARD_ID },
+                onChoose = { e, id -> docChoice = docChoice + (e.name to id); analyze(addDoctors) },
                 addDoctors = addDoctors,
-                onToggleDoctors = { v -> addDoctors = v; mapping = emptyMap(); analyze(v) },
+                onToggleDoctors = { v -> addDoctors = v; analyze(v) },
                 onApply = {
                     // Les noms inconnus peuvent devenir de nouveaux médecins (numéro à compléter ensuite)
                     val created = r.unknownNames.filter { mapping[it] == KEY_NEW }
@@ -204,8 +226,17 @@ fun ImportScreen(
                     created.forEach { (k, d) -> resolved[k] = d.id }
                     val edits = ImportParser.toEdits(r.items, resolved)
                     // Ce que l'utilisateur a associé est mémorisé : le prochain import le reconnaîtra tout seul
-                    val learned = resolved.mapKeys { NameMatcher.normalize(it.key) }.filterKeys { it.isNotEmpty() }
-                    val plan = if (addDoctors && photoDoctors.isNotEmpty()) DoctorList.merge(snap.doctors, photoDoctors, idGen()) else null
+                    var learned = resolved.mapKeys { NameMatcher.normalize(it.key) }.filterKeys { it.isNotEmpty() }
+                    // Idem pour les médecins de la photo associés à un médecin existant (« Dr Durand » = Alice)
+                    var addedDoctors = 0
+                    var linkedDoctors = 0
+                    if (addDoctors) unmatched(snap.doctors).forEach { e ->
+                        when (val c = choiceOf(e)) {
+                            KEY_KEEP -> {}
+                            KEY_NEW -> addedDoctors++
+                            else -> { linkedDoctors++; NameMatcher.normalize(e.name).takeIf { it.isNotEmpty() }?.let { learned = learned + (it to c) } }
+                        }
+                    }
                     onEdit { s ->
                         s.copy(
                             doctors = mergedDoctors(s.doctors, addDoctors) + created.values,
@@ -216,7 +247,8 @@ fun ImportScreen(
                     val skipped = r.items.size - edits.size
                     appliedMessage = "${edits.size} case(s) enregistrée(s) dans le planning" +
                         (if (skipped > 0) " ($skipped ignorée(s))" else "") + "." +
-                        (if (plan != null && plan.added > 0) " ${plan.added} médecin(s) ajouté(s) sans numéro : complétez-les dans l'onglet Médecins." else "") +
+                        (if (linkedDoctors > 0) " $linkedDoctors médecin(s) reliés à leur nom (mémorisé)." else "") +
+                        (if (addedDoctors > 0) " $addedDoctors médecin(s) ajouté(s) sans numéro : complétez-les dans l'onglet Médecins." else "") +
                         (if (created.isNotEmpty()) " ${created.size} médecin(s) ajouté(s) SANS numéro : complétez-les dans l'onglet Médecins." else "")
                     result = null
                     pasted = ""
@@ -241,8 +273,11 @@ private fun PreviewCard(
     result: ImportResult,
     mapping: Map<String, String?>,
     onMap: (String, String?) -> Unit,
-    docPlan: DoctorList.MergeResult?,
-    existingDoctors: List<Doctor>,
+    photoDoctorCount: Int,
+    photoUnmatched: List<DoctorList.Entry>,
+    docChoice: (DoctorList.Entry) -> String,
+    pickerDoctors: List<Doctor>,
+    onChoose: (DoctorList.Entry, String?) -> Unit,
     addDoctors: Boolean,
     onToggleDoctors: (Boolean) -> Unit,
     onApply: () -> Unit,
@@ -252,9 +287,9 @@ private fun PreviewCard(
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("3. Vérification", style = MaterialTheme.typography.titleMedium)
-            val doctorsOnly = result.items.isEmpty() && docPlan != null && addDoctors && docPlan.added > 0
+            val doctorsOnly = result.items.isEmpty() && addDoctors && photoUnmatched.any { docChoice(it) != KEY_KEEP }
             if (result.items.isEmpty()) {
-                Text(if (docPlan != null) "Aucune affectation de planning dans cette réponse." else "Aucune affectation reconnue.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                Text(if (photoDoctorCount > 0) "Aucune affectation de planning dans cette réponse." else "Aucune affectation reconnue.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
             } else {
                 Text("${result.items.size} affectation(s) sur ${result.dayCount} jour(s).", fontWeight = FontWeight.Bold)
             }
@@ -262,28 +297,46 @@ private fun PreviewCard(
                 Text("⚠ $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
 
-            // Médecins et numéros lus sur la photo
-            if (docPlan != null) {
+            // Médecins lus sur la photo : ceux que la liste ne reconnaît pas sont à associer ou à ajouter
+            if (photoDoctorCount > 0) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = addDoctors, onCheckedChange = onToggleDoctors)
                     Column {
                         Text("Médecins lus sur la photo", fontWeight = FontWeight.Bold)
                         Text(
-                            "${docPlan.added} à ajouter (sans numéro) · ${docPlan.unchanged} déjà présent(s)",
+                            "${photoDoctorCount - photoUnmatched.size} déjà reconnu(s) · ${photoUnmatched.size} à associer ou ajouter",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }
-                if (addDoctors) {
-                    val known = existingDoctors.associateBy { it.id }
-                    docPlan.doctors.filter { known[it.id] == null }.forEach { d ->
-                        Text("+ ${d.name}", style = MaterialTheme.typography.bodySmall)
-                    }
+                if (addDoctors && photoUnmatched.isNotEmpty()) {
                     Text(
-                        "Les médecins sont ajoutés SANS numéro : complétez-les dans l'onglet Médecins (aucun renvoi ne part vers un médecin sans numéro).",
+                        "Sur la photo, les médecins sont désignés par leur nom, alors que votre liste peut ne contenir que des prénoms. " +
+                            "Pour chaque nom, choisissez le médecin déjà enregistré qui correspond : son nom est alors complété (« Alice » devient « Alice Durand ») " +
+                            "et le lien est mémorisé pour les prochains imports. Sinon, ajoutez-le comme nouveau médecin.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
                     )
+                    photoUnmatched.forEach { e ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("« ${e.name} »", Modifier.weight(1f))
+                            TargetPicker(
+                                doctors = pickerDoctors,
+                                value = docChoice(e),
+                                onChange = { onChoose(e, it) },
+                                keepLabel = "Ignorer",
+                                allowOff = false,
+                                newLabel = "Ajouter (sans numéro)",
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    if (photoUnmatched.any { docChoice(it) == KEY_NEW }) {
+                        Text(
+                            "Les médecins ajoutés n'ont pas de numéro : complétez-les dans l'onglet Médecins (aucun renvoi ne part vers un médecin sans numéro).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
 

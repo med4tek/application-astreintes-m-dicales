@@ -272,6 +272,21 @@ class PhotoDoctorsTest {
         assertEquals(Target.Doc("zz"), ImportParser.parse(json, withNew, slots).items.single().target)
     }
 
+    @Test fun `un prenom complete par le nom lu sur la photo permet de le retrouver`() {
+        assertEquals("Eve Garnier", DoctorList.completeName("Eve", "Dr Garnier"))
+        assertEquals("Eve Garnier", DoctorList.completeName("Eve Garnier", "Dr GARNIER"))
+        assertEquals("Dr Hugo Perrin", DoctorList.completeName("Dr Hugo", "Perrin"))
+        val prenoms = listOf(STANDARD_DOCTOR, Doctor("p", "Eve", ""), Doctor("q", "Hugo", ""))
+        // sans lien, le nom de famille n'est pas reconnu...
+        assertNull(NameMatcher.find("Dr Garnier", prenoms))
+        // ... avec le nom complete, il l'est (et le prenom seul aussi)
+        val complets = prenoms.map { if (it.id == "p") it.copy(name = DoctorList.completeName(it.name, "Dr Garnier")) else it }
+        assertEquals("p", NameMatcher.find("Dr Garnier", complets)?.id)
+        assertEquals("p", NameMatcher.find("Eve", complets)?.id)
+        // un nom deja reconnu n'est pas propose a l'ajout
+        assertEquals("p", NameMatcher.find("Eve Garnier", prenoms)?.id)
+    }
+
     @Test fun `la consigne demande les noms lus sur la photo, jamais de numeros`() {
         val p = PromptBuilder.build(java.time.YearMonth.of(2026, 11), STAFF, slots, "")
         assertTrue(p.contains("\"medecins\"")); assertTrue(!p.contains("\"telephone\""))

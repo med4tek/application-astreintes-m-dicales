@@ -54,6 +54,17 @@ object DoctorList {
         return MergeResult(doctors, added, updated, unchanged)
     }
 
+    /**
+     * Complète le nom d'un médecin avec les mots qu'il n'a pas encore : « Alice » + « Dr Durand »
+     * -> « Alice Durand ». Les titres (Dr, Pr…) du nom ajouté sont écartés ; rien n'est retiré.
+     */
+    fun completeName(existing: String, seen: String): String {
+        val have = existing.trim().split(Regex("\\s+")).map { NameMatcher.normalize(it) }.filter { it.isNotEmpty() }.toSet()
+        val extra = prettyName(seen).split(Regex("\\s+"))
+            .filter { w -> NameMatcher.normalize(w).let { it.isNotEmpty() && it !in have } }
+        return (listOf(existing.trim()) + extra).joinToString(" ").trim()
+    }
+
     /** « Dr DUPONT » -> « Dr Dupont » : un nom tout en majuscules est remis en casse normale. */
     fun prettyName(raw: String): String = raw.trim().split(Regex("\\s+")).joinToString(" ") { w ->
         if (w.length > 2 && w == w.uppercase()) w.lowercase().replaceFirstChar { it.uppercase() } else w
