@@ -170,7 +170,7 @@ object ImportParser {
         return out
     }
 
-    private fun classify(raw: String, doctors: List<Doctor>, aliases: Map<String, String>): Target {
+    internal fun classify(raw: String, doctors: List<Doctor>, aliases: Map<String, String>): Target {
         val key = ascii(raw).uppercase(Locale.ROOT).trim()
         return when (key) {
             "AUCUN", "AUCUN RENVOI", "OFF", "RIEN" -> Target.Off

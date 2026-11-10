@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,6 +53,10 @@ import fr.astreinte.relais.core.PromptBuilder
 import fr.astreinte.relais.core.STANDARD_ID
 import fr.astreinte.relais.core.Snapshot
 import fr.astreinte.relais.core.Target
+import fr.astreinte.relais.core.XlsxPlanning
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.YearMonth
 import java.util.UUID
@@ -106,8 +113,45 @@ fun ImportScreen(
         }
         return DoctorList.merge(list, toAdd, idGen()).doctors
     }
+    // Import direct d'un fichier Excel (sans IA) : les cases colorées sont lues dans le fichier
+    var xlsx by remember { mutableStateOf<XlsxPlanning.Parsed?>(null) }
+    var xlsxName by remember { mutableStateOf("") }
+    var xlsxBusy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
     fun analyze(withPhoto: Boolean) {
-        result = ImportParser.parse(pasted, mergedDoctors(snap.doctors, withPhoto), snap.settings.slots, snap.aliases)
+        val doctors = mergedDoctors(snap.doctors, withPhoto)
+        val x = xlsx
+        result = if (x != null) XlsxPlanning.toResult(x, doctors, snap.aliases)
+        else ImportParser.parse(pasted, doctors, snap.settings.slots, snap.aliases)
+    }
+
+    val pickXlsx = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            xlsxBusy = true
+            scope.launch {
+                val parsed = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)!!.use { XlsxPlanning.parse(XlsxPlanning.readZip(it), month) }
+                    }
+                }
+                xlsxBusy = false
+                parsed.onSuccess { x ->
+                    xlsx = x
+                    xlsxName = uri.lastPathSegment?.substringAfterLast('/').orEmpty()
+                    photoDoctors = XlsxPlanning.doctorEntries(x)
+                    idPool = photoDoctors.map { UUID.randomUUID().toString() }
+                    addDoctors = true
+                    docChoice = emptyMap()
+                    mapping = emptyMap()
+                    appliedMessage = null
+                    analyze(true)
+                }.onFailure { e ->
+                    xlsx = null
+                    result = ImportResult(emptyList(), listOf("Fichier illisible : ${e.message ?: e.javaClass.simpleName}"))
+                }
+            }
+        }
     }
 
     val prompt = remember(snap.doctors, snap.settings.slots, monthIndex, notes) {
@@ -124,6 +168,25 @@ fun ImportScreen(
                 "(Claude, ChatGPT…).  3. Collez sa réponse ici : le planning se remplit tout seul, après vérification.",
             style = MaterialTheme.typography.bodyMedium,
         )
+
+        // ---------------------------------------------------------------- fichier Excel (sans IA)
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Plus fiable : importer le fichier Excel (sans IA)", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Si votre planning est un fichier Excel (.xlsx), l'application lit directement les cases COLORÉES, ce qu'un assistant IA fait mal. " +
+                        "Mois choisi : ${month.label()} (flèches de l'étape 1). Règles : 9h et 14h = standard ; 12h = case colorée « midi » ; " +
+                        "17h = case colorée 17-18h ; 18h = case APRES MIDI colorée ; week-ends et fériés = case MATIN colorée, sur 9h.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Button(
+                    enabled = !xlsxBusy,
+                    onClick = { pickXlsx.launch(arrayOf("*/*")) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (xlsxBusy) "Lecture…" else "Choisir le fichier Excel…") }
+                if (xlsx != null && xlsxName.isNotBlank()) Text("Fichier lu : $xlsxName (onglet ${xlsx?.sheet})", style = MaterialTheme.typography.bodySmall)
+            }
+        }
 
         // ---------------------------------------------------------------- étape 1
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -176,7 +239,7 @@ fun ImportScreen(
                 Text("2. La réponse de l'IA", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(
                     value = pasted,
-                    onValueChange = { pasted = it; result = null; appliedMessage = null },
+                    onValueChange = { pasted = it; xlsx = null; result = null; appliedMessage = null },
                     label = { Text("Collez ici la réponse") },
                     minLines = 5,
                     maxLines = 10,
@@ -193,6 +256,7 @@ fun ImportScreen(
                     Button(
                         enabled = pasted.isNotBlank(),
                         onClick = {
+                            xlsx = null
                             photoDoctors = ImportParser.parse(pasted, snap.doctors, snap.settings.slots, snap.aliases).doctors
                             idPool = photoDoctors.map { UUID.randomUUID().toString() }
                             addDoctors = true
@@ -307,7 +371,7 @@ private fun PreviewCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = addDoctors, onCheckedChange = onToggleDoctors)
                     Column {
-                        Text("Médecins lus sur la photo", fontWeight = FontWeight.Bold)
+                        Text("Médecins lus dans le document", fontWeight = FontWeight.Bold)
                         Text(
                             "${photoDoctorCount - photoUnmatched.size} déjà reconnu(s) · ${photoUnmatched.size} à associer ou ajouter",
                             style = MaterialTheme.typography.bodySmall,
@@ -316,7 +380,7 @@ private fun PreviewCard(
                 }
                 if (addDoctors && photoUnmatched.isNotEmpty()) {
                     Text(
-                        "Sur la photo, les médecins sont désignés par leur nom, alors que votre liste peut ne contenir que des prénoms. " +
+                        "Dans le document, les médecins sont désignés par leur nom, alors que votre liste peut ne contenir que des prénoms. " +
                             "Pour chaque nom, choisissez le médecin déjà enregistré qui correspond : son nom est alors complété (« Alice » devient « Alice Durand ») " +
                             "et le lien est mémorisé pour les prochains imports. Sinon, ajoutez-le comme nouveau médecin.",
                         style = MaterialTheme.typography.bodySmall,

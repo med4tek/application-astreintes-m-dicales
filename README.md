@@ -18,6 +18,20 @@ Application Android personnelle (hors Play Store) qui change toute seule le **re
 3. **Import** : remplir un mois depuis une photo (voir ci-dessous).
 4. **Réglages** : accordez les autorisations, **testez** avec « Vérifier le renvoi actuellement en place » (`*#21#`), puis activez la **Bascule automatique**.
 
+## Import direct d'un fichier Excel (sans IA, recommandé si vous avez le .xlsx)
+
+Onglet **Import** → « Choisir le fichier Excel… » (après avoir choisi le mois). L'application lit **les couleurs des cases** dans le fichier, ce qu'un assistant IA fait mal sur une photo. Modèle reconnu : une ligne par jour (colonne A = jour, colonne B = numéro) et, pour chaque médecin (« Dr … »), un bloc de colonnes MATIN, une colonne sans titre (midi), APRES MIDI et parfois 17-18h. Seules les cases **colorées** comptent (un « x » ou « ABS » sans couleur est ignoré) :
+
+| Créneau | Médecin retenu |
+|---|---|
+| 9h et 14h (jours ouvrés) | toujours le standard : rien à lire |
+| 12h | case colorée de la colonne du midi |
+| 17h | case colorée de la colonne 17-18h (la jaune s'il y en a deux) |
+| 18h | case colorée de la colonne APRES MIDI |
+| week-end et jour férié | case MATIN colorée, sur 9h (la personne couvre la journée) |
+
+L'onglet est choisi d'après le titre (« MOIS DE NOVEMBRE 2026 ») ou son numéro. Les cas douteux (plusieurs cases colorées, jour sans case) sont listés dans l'aperçu ; les noms (« Dr Durand ») se rattachent aux médecins de la liste, comme pour une photo.
+
 ## Import depuis une photo de planning
 
 1. Onglet **Import** : choisissez le mois, ajoutez au besoin des précisions sur la structure de votre planning (« la colonne Garde = 18:00 »), puis **Copier** ou **Partager…** la consigne. Les précisions sont **mémorisées** : on les saisit une fois pour toutes. Le bouton « Insérer le modèle » propose un texte prêt à adapter pour un tableau à une ligne par jour et un bloc de colonnes par médecin (MATIN, midi, APRES MIDI, 17-18h) où seules les cases **colorées** comptent (9h et 14h : toujours le standard ; 12h, 17h, 18h : le médecin dont la case est colorée dans la colonne correspondante ; week-ends et fériés : le médecin du matin sur 9h). Envoyez à l'assistant une **capture nette du tableau** : les couleurs ne passent pas dans un export texte.
