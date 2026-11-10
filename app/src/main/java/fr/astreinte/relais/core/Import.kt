@@ -37,13 +37,19 @@ object ImportParser {
 
     fun parse(text: String, doctors: List<Doctor>, slots: List<Slot>): ImportResult {
         val problems = ArrayList<String>()
-        val json = extractJson(text)
+        val json = extractJson(sanitize(text))
             ?: return ImportResult(emptyList(), listOf("Aucun bloc JSON trouvé dans le texte collé."))
 
         val root = try {
             JSONTokener(json).nextValue()
         } catch (e: JSONException) {
-            return ImportResult(emptyList(), listOf("JSON illisible : ${e.message}"))
+            return ImportResult(
+                emptyList(),
+                listOf(
+                    "JSON illisible : ${e.message}",
+                    "Astuce : demandez à l'assistant de répondre dans un bloc de code, puis utilisez le bouton « Copier » de ce bloc.",
+                )
+            )
         }
 
         var defaultYear = LocalDate.now().year
@@ -120,6 +126,16 @@ object ImportParser {
     private fun ascii(s: String) =
         Normalizer.normalize(s, Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
 
+    /**
+     * Répare les défauts typiques d'un texte copié depuis une page de chat : espaces insécables,
+     * guillemets typographiques “ ” et surtout échappements Markdown (`\\[`, `\\]`, `\\_`, `\\*`…),
+     * qui rendent le JSON invalide. Les vrais échappements JSON (`\\"`, `\\n`, `\\u00e9`…) sont conservés.
+     */
+    internal fun sanitize(text: String): String = text
+        .replace('\u00A0', ' ').replace('\u202F', ' ')
+        .replace('\u201C', '"').replace('\u201D', '"').replace('\u201E', '"')
+        .replace(Regex("\\\\([\\[\\]{}_*#`()!+<>|~.\\-])"), "$1")
+
     internal fun extractJson(text: String): String? {
         val start = text.indexOfFirst { it == '{' || it == '[' }
         val end = text.indexOfLast { it == '}' || it == ']' }
@@ -187,7 +203,7 @@ object PromptBuilder {
             }
             appendLine()
             appendLine("FORMAT DE RÉPONSE")
-            appendLine("Réponds UNIQUEMENT par un bloc JSON, sans aucun commentaire avant ou après :")
+            appendLine("Réponds UNIQUEMENT par UN SEUL bloc de code JSON (balises ```json), sans aucun commentaire avant ou après :")
             appendLine(example)
             appendLine()
             appendLine("RÈGLES")

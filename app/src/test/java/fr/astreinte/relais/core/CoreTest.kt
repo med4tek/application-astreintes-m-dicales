@@ -311,6 +311,34 @@ class ImportTest {
         assertEquals(2, r.problems.size) // date illisible + heure hors créneaux
     }
 
+    @Test fun `repare les crochets echappes d'une copie depuis une page de chat`() {
+        // Cas réel : l'assistant (ou la copie) a écrit \[ et \] ; tout sur une seule ligne
+        val pasted = """{ "month": "2026-11", "days": \[ {"date": "2026-11-01"}, {"date": "2026-11-02", "09:00": "Standard", "14:00": "Standard"}, {"date": "2026-11-10", "17:00": "Dr Dupont"} \] }"""
+        val r = ImportParser.parse(pasted, docs, DEFAULT_SLOTS)
+        assertTrue(r.problems.toString(), r.problems.isEmpty())
+        assertEquals(3, r.items.size)
+        assertEquals(Target.Doc("d"), r.items.last().target)
+    }
+
+    @Test fun `repare aussi les guillemets typographiques et les espaces insecables`() {
+        val pasted = "{\u00A0\u201Cdays\u201D: [{\u201Cdate\u201D: \u201C2026-12-05\u201D, \u201C18:00\u201D: \u201CMartin\u201D}]}"
+        val r = ImportParser.parse(pasted, docs, DEFAULT_SLOTS)
+        assertTrue(r.problems.toString(), r.problems.isEmpty())
+        assertEquals(Target.Doc("m"), r.items.single().target)
+    }
+
+    @Test fun `les vrais echappements JSON sont conserves`() {
+        val pasted = """{"days":[{"date":"2026-12-05","18:00":"Dr \"Martin\" Paul","note":"ligne1\nligne2"}]}"""
+        val r = ImportParser.parse(pasted, docs, DEFAULT_SLOTS)
+        assertEquals(1, r.items.size)
+        assertEquals("Dr \"Martin\" Paul", r.items.single().raw)
+    }
+
+    @Test fun `un JSON vraiment illisible donne une astuce`() {
+        val r = ImportParser.parse("{ \"days\": [ {date: } ", docs, DEFAULT_SLOTS)
+        assertTrue(r.problems.any { it.contains("bloc de code") })
+    }
+
     @Test fun `la consigne contient les elements utiles`() {
         val p = PromptBuilder.build(YearMonth.of(2026, 12), docs, DEFAULT_SLOTS, "La colonne Garde = 18:00")
         assertTrue(p.contains("décembre 2026"))
@@ -319,6 +347,7 @@ class ImportTest {
         assertTrue(p.contains("Standard 8311"))
         assertTrue(p.contains("La colonne Garde = 18:00"))
         assertTrue(p.contains("\"2026-12-01\""))
+        assertTrue(p.contains("bloc de code JSON"))
     }
 }
 
