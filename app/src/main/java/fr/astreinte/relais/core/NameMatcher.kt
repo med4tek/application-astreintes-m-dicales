@@ -41,6 +41,14 @@ object NameMatcher {
         if (partial.size == 1) return partial[0].first
         if (partial.size > 1) return null
 
+        // Faute de frappe dans un mot (« Garnnier » pour « Garnier ») : chaque mot cherché doit ressembler à un mot du nom
+        val fuzzy = candidates.filter { (_, name) ->
+            val tokens = name.split(' ')
+            wantedTokens.all { w -> tokens.any { t -> distance(t, w) <= tokenTolerance(w) } }
+        }
+        if (fuzzy.size == 1) return fuzzy[0].first
+        if (fuzzy.size > 1) return null
+
         val maxDistance = if (wanted.length <= 5) 1 else 2
         val close = candidates
             .map { (d, name) -> d to distance(name, wanted) }
@@ -48,6 +56,9 @@ object NameMatcher {
         val best = close.minOfOrNull { it.second } ?: return null
         return close.filter { it.second == best }.singleOrNull()?.first
     }
+
+    /** Fautes admises dans un mot : aucune pour un mot court, 1 à partir de 7 lettres, 2 à partir de 11. */
+    private fun tokenTolerance(w: String) = when { w.length >= 11 -> 2; w.length >= 7 -> 1; else -> 0 }
 
     /** Distance de Levenshtein. */
     fun distance(a: String, b: String): Int {

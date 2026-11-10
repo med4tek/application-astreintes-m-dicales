@@ -158,6 +158,7 @@ object SnapshotJson {
         .put("changeTextNew", st.changeTextNew)
         .put("changeTextOld", st.changeTextOld)
         .put("userName", st.userName)
+        .put("importNotes", st.importNotes)
         .put("msgRules", JSONArray().apply {
             st.msgRules.forEach {
                 put(
@@ -198,6 +199,7 @@ object SnapshotJson {
         changeTextNew = o.optString("changeTextNew", DEFAULT_CHANGE_NEW),
         changeTextOld = o.optString("changeTextOld", DEFAULT_CHANGE_OLD),
         userName = o.optString("userName", ""),
+        importNotes = o.optString("importNotes", ""),
         msgRules = o.optJSONArray("msgRules")?.let { arr ->
             val rules = arr.toList { r ->
                 MessageRule(

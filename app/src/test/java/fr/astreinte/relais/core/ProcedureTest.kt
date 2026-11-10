@@ -372,3 +372,43 @@ class OffDaysTest {
         assertEquals(listOf("midi"), deleted.settings.msgRules.map { it.id })
     }
 }
+
+class LayoutNotesTest {
+    private val staff = listOf(STANDARD_DOCTOR, Doctor("a", "Eve Garnier", ""), Doctor("b", "Hugo Perrin (mpr)", ""), Doctor("c", "Dr Meunier", ""))
+
+    @Test fun `une faute de frappe dans le nom de famille est toleree`() {
+        assertEquals("a", NameMatcher.find("Dr GARNIERE", staff)?.id)
+        assertEquals("a", NameMatcher.find("Dr GARNNIER", staff)?.id)
+        assertEquals("c", NameMatcher.find("Dr MEUNNIER", staff)?.id)
+        assertEquals("b", NameMatcher.find("Dr PERRIN (MPR)", staff)?.id)
+        // un mot court ne change pas : pas de faux rapprochement
+        assertNull(NameMatcher.find("Dr Dupin", staff))
+    }
+
+    @Test fun `les precisions sont memorisees et le modele figure dans la consigne`() {
+        val s = Snapshot(settings = Settings(importNotes = PromptBuilder.LAYOUT_TEMPLATE))
+        assertEquals(s, SnapshotJson.fromJson(SnapshotJson.toJson(s)))
+        val p = PromptBuilder.build(java.time.YearMonth.of(2026, 11), staff, DEFAULT_SLOTS, s.settings.importNotes)
+        assertTrue(p.contains("PRÉCISIONS SUR CE PLANNING") && p.contains("COLORIÉE") && p.contains("APRES MIDI"))
+        assertTrue(SnapshotJson.fromJson("""{"settings":{"mode":"RELAY"}}""").settings.importNotes.isEmpty())
+    }
+
+    @Test fun `la reponse type d'un tableau a cases colorees s'importe comme voulu`() {
+        // jours ouvres : 12h, 17h, 18h ; week-end : 9h seulement ; jamais 9h ni 14h un jour ouvre
+        val json = """{"month":"2026-11","days":[
+          {"date":"2026-11-02","12:00":"Hugo Perrin (mpr)","18:00":"Dr Meunier"},
+          {"date":"2026-11-07","09:00":"Eve Garnier"},
+          {"date":"2026-11-11","09:00":"Eve Garnier"}]}"""
+        val r = ImportParser.parse(json, staff, DEFAULT_SLOTS)
+        assertEquals(4, r.items.size)
+        assertTrue(r.items.all { it.target is Target.Doc })
+        val snap = Snapshot(doctors = staff, shifts = Planner.applyEdits(emptyList(), ImportParser.toEdits(r.items, emptyMap())) { java.util.UUID.randomUUID().toString() })
+        val zone = java.time.ZoneId.of("Europe/Paris")
+        fun at(d: String, h: Int) = java.time.ZonedDateTime.of(java.time.LocalDate.parse(d), java.time.LocalTime.of(h, 0), zone).toInstant()
+        fun who(d: String, h: Int) = Planner.currentShift(snap, at(d, h), zone)?.doctorId
+        assertEquals(STANDARD_ID, who("2026-11-02", 10)); assertEquals("b", who("2026-11-02", 12))
+        assertEquals(STANDARD_ID, who("2026-11-02", 15)); assertEquals("c", who("2026-11-02", 19))
+        // samedi et mercredi 11 (ferie) : la meme personne toute la journee
+        listOf(9, 12, 14, 17, 18, 22).forEach { assertEquals("a", who("2026-11-07", it)); assertEquals("a", who("2026-11-11", it)) }
+    }
+}

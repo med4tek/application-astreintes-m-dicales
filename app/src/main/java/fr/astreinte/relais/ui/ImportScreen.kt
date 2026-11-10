@@ -69,7 +69,9 @@ fun ImportScreen(
         mutableIntStateOf(m.year * 12 + m.monthValue - 1)
     }
     val month = YearMonth.of(monthIndex / 12, monthIndex % 12 + 1)
-    var notes by rememberSaveable { mutableStateOf("") }
+    // Précisions mémorisées dans les réglages : on les saisit une fois pour toutes pour ce format de planning
+    val notes = snap.settings.importNotes
+    fun setNotes(v: String) = onEdit { it.copy(settings = it.settings.copy(importNotes = v)) }
     var pasted by rememberSaveable { mutableStateOf("") }
     var showFullPrompt by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<ImportResult?>(null) }
@@ -138,12 +140,15 @@ fun ImportScreen(
                 }
                 OutlinedTextField(
                     value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Précisions sur votre planning (facultatif)") },
+                    onValueChange = { setNotes(it) },
+                    label = { Text("Précisions sur votre planning (mémorisées)") },
                     placeholder = { Text("Ex. : la colonne « Garde » correspond à 18:00") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                TextButton(onClick = { setNotes(if (notes.isBlank()) PromptBuilder.LAYOUT_TEMPLATE else notes.trimEnd() + "\n\n" + PromptBuilder.LAYOUT_TEMPLATE) }) {
+                    Text("Insérer le modèle « tableau à cases colorées »")
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { copyToClipboard(context, prompt) }, modifier = Modifier.weight(1f)) {
                         Text("Copier")

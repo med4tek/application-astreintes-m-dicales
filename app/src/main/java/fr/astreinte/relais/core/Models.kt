@@ -135,6 +135,8 @@ data class Settings(
     val changeTextOld: String = DEFAULT_CHANGE_OLD,
     /** Nom de l'utilisateur de ce téléphone, inscrit dans l'historique des modifications du planning. */
     val userName: String = "",
+    /** Précisions sur la structure du planning à lire (importées avec la consigne pour l'IA), mémorisées. */
+    val importNotes: String = "",
 ) {
     val isRelay: Boolean get() = mode == Mode.RELAY
     val isViewer: Boolean get() = mode == Mode.VIEWER

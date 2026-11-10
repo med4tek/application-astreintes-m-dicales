@@ -230,6 +230,18 @@ object ImportParser {
 
 /** Génère la consigne à donner au LLM avec la photo du planning. */
 object PromptBuilder {
+    /**
+     * Modèle de « précisions » pour un planning en tableau : une ligne par jour, un bloc de colonnes par médecin
+     * (MATIN, colonne sans titre = midi, APRES MIDI, 17-18h) où seules les cases COLORÉES comptent.
+     */
+    const val LAYOUT_TEMPLATE = """STRUCTURE DE MON PLANNING : une ligne par jour ; pour chaque médecin, un bloc de colonnes MATIN, une colonne SANS TITRE (le midi), APRES MIDI, et parfois 17-18h. Une case compte SEULEMENT si elle est COLORIÉE (bleu, ou jaune dans 17-18h). Un « x » non coloré ou « ABS » ne compte pas : ignore-les.
+JOURS OUVRÉS :
+- Ne mets jamais "09:00" ni "14:00" (c'est toujours le standard).
+- "12:00" = le médecin dont la case colorée est dans la colonne SANS TITRE, entre MATIN et APRES MIDI.
+- "17:00" = le médecin dont la case colorée est dans la colonne 17-18h (si deux médecins ont une case colorée là, prends celle en jaune ; s'il n'y en a aucune, omets "17:00").
+- "18:00" = le médecin dont la case APRES MIDI est colorée.
+WEEK-ENDS ET JOURS FÉRIÉS : un seul médecin pour la journée, celui dont la case MATIN est colorée ; mets-le uniquement sur "09:00"."""
+
     private val MONTH_FR = DateTimeFormatter.ofPattern("LLLL yyyy", Locale.FRENCH)
 
     fun build(month: YearMonth, doctors: List<Doctor>, slots: List<Slot>, notes: String): String {
