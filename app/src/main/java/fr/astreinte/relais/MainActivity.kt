@@ -24,6 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import fr.astreinte.relais.core.Author
 import fr.astreinte.relais.core.Mode
 import fr.astreinte.relais.core.Snapshot
 import fr.astreinte.relais.data.Store
@@ -85,7 +86,7 @@ class MainActivity : ComponentActivity() {
                             modifier = m,
                         )
                         Tab.DOCTORS -> DoctorsScreen(snap, ::edit, modifier = m, readOnly = viewer)
-                        Tab.IMPORT -> ImportScreen(snap, ::edit, modifier = m)
+                        Tab.IMPORT -> ImportScreen(snap, { block -> editAs(Author(Author.VIA_IMPORT), block) }, modifier = m)
                         Tab.SYNC -> SyncScreen(snap, resumeTick, ::edit, modifier = m)
                         Tab.SETTINGS -> SettingsScreen(snap, resumeTick, ::edit, modifier = m)
                     }
@@ -107,8 +108,10 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Toute modification passe par ici : on enregistre, puis on réévalue ce qu'il faut appliquer. */
-    private fun edit(block: (Snapshot) -> Snapshot) {
-        Store.update(block)
+    private fun edit(block: (Snapshot) -> Snapshot) = editAs(null, block)
+
+    private fun editAs(by: Author?, block: (Snapshot) -> Snapshot) {
+        Store.update(by, block)
         Relay.reconcile(this, Relay.Trigger.EDIT)
     }
 }

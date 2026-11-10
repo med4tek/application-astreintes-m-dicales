@@ -23,7 +23,12 @@ sealed interface Target {
 
 data class ImportItem(val date: LocalDate, val time: LocalTime, val raw: String, val target: Target)
 
-data class ImportResult(val items: List<ImportItem>, val problems: List<String>) {
+data class ImportResult(
+    val items: List<ImportItem>,
+    val problems: List<String>,
+    /** Médecins (nom + numéro) lus sur la photo par l'assistant, à ajouter ou compléter dans la liste. */
+    val doctors: List<DoctorList.Entry> = emptyList(),
+) {
     val unknownNames: List<String>
         get() = items.mapNotNull { (it.target as? Target.Unknown)?.name }.distinct()
     val dayCount: Int get() = items.map { it.date }.distinct().size
@@ -58,14 +63,17 @@ object ImportParser {
         }
 
         var defaultYear = LocalDate.now().year
+        var photoDoctors: List<DoctorList.Entry> = emptyList()
         val days: JSONArray = when (root) {
             is JSONArray -> root
             is JSONObject -> {
                 root.optString("month").takeIf { it.isNotBlank() }?.let { m ->
                     runCatching { YearMonth.parse(m.trim()) }.getOrNull()?.let { defaultYear = it.year }
                 }
+                photoDoctors = parseDoctors(root)
                 root.optJSONArray("days")
-                    ?: return ImportResult(emptyList(), listOf("Le JSON ne contient pas de liste « days »."))
+                    ?: return if (photoDoctors.isNotEmpty()) ImportResult(emptyList(), emptyList(), photoDoctors)
+                    else ImportResult(emptyList(), listOf("Le JSON ne contient pas de liste « days »."))
             }
             else -> return ImportResult(emptyList(), listOf("Format JSON inattendu."))
         }
@@ -98,7 +106,33 @@ object ImportParser {
                 items += ImportItem(date, time, raw, classify(raw, doctors, aliases))
             }
         }
-        return ImportResult(items.sortedWith(compareBy({ it.date }, { it.time })), problems)
+        return ImportResult(items.sortedWith(compareBy({ it.date }, { it.time })), problems, photoDoctors)
+    }
+
+    /**
+     * Liste « medecins » du JSON : [{"nom": "...", "telephone": "..."}] (ou simples chaînes « Nom ; numéro »).
+     * Un numéro illisible est ignoré (le médecin est alors ajouté sans numéro). « Standard… » désigne
+     * toujours la fiche Standard existante.
+     */
+    internal fun parseDoctors(root: JSONObject): List<DoctorList.Entry> {
+        val arr = listOf("medecins", "médecins", "doctors", "contacts").firstNotNullOfOrNull { root.optJSONArray(it) }
+            ?: return emptyList()
+        val lines = ArrayList<String>()
+        for (i in 0 until arr.length()) {
+            when (val o = arr.opt(i)) {
+                is JSONObject -> {
+                    val name = listOf("nom", "name", "medecin", "médecin").firstNotNullOfOrNull { k -> o.optString(k).takeIf { it.isNotBlank() } }
+                    val phone = listOf("telephone", "téléphone", "tel", "tél", "phone", "numero", "numéro", "portable")
+                        .firstNotNullOfOrNull { k -> o.optString(k).takeIf { it.isNotBlank() } }.orEmpty()
+                    if (name != null) lines += "${name.replace(';', ' ')} ; $phone"
+                }
+                is String -> lines += o
+            }
+        }
+        return DoctorList.parse(lines.joinToString("\n")).map { e ->
+            if (NameMatcher.normalize(e.name).startsWith("standard")) e.copy(name = STANDARD_DOCTOR.name)
+            else e.copy(name = DoctorList.prettyName(e.name))
+        }.distinctBy { NameMatcher.normalize(it.name) }
     }
 
     /** Résultat d'import -> modifications de cases ; [mapping] associe les noms inconnus à un médecin. */
@@ -213,6 +247,13 @@ object PromptBuilder {
                 appendLine(notes.trim())
             }
             appendLine()
+            appendLine("MÉDECINS ET NUMÉROS LUS SUR LA PHOTO")
+            appendLine("Si la photo indique des médecins (liste, légende, contacts, bas de page…), donne-les dans une liste \"medecins\" : un objet par médecin avec son \"nom\" et son \"telephone\".")
+            appendLine("- Inclus TOUS les médecins dont tu lis le nom, même ceux de la liste ci-dessus (cela permet de compléter leur numéro).")
+            appendLine("- \"nom\" : le nom EXACT de la liste ci-dessus si c'est le même médecin, sinon le nom tel qu'il est écrit (prénom et nom s'ils figurent tous les deux).")
+            appendLine("- \"telephone\" : le numéro tel qu'il est écrit sur la photo, chiffre par chiffre. Si le numéro est absent ou illisible, mets \"\". N'invente et ne devine JAMAIS un numéro.")
+            appendLine("- Pour le standard, utilise le nom « Standard »; un numéro de service ou d'astreinte (non rattaché à une personne) peut figurer avec son intitulé (ex. « Astreinte site B »).")
+            appendLine()
             appendLine("FORMAT DE RÉPONSE")
             appendLine("Réponds UNIQUEMENT par UN SEUL bloc de code JSON (balises ```json), sans aucun commentaire avant ou après :")
             appendLine(example)
@@ -222,7 +263,7 @@ object PromptBuilder {
             appendLine("- N'inclus un créneau que si le planning le renseigne pour ce jour. Sinon omets la clé (ne devine rien).")
             appendLine("- Si une case est illisible ou douteuse, omets-la plutôt que d'inventer.")
             appendLine("- Écris \"AUCUN\" si le planning indique explicitement qu'il n'y a pas de renvoi à ce créneau.")
-            appendLine("- Ne mets que des noms de personnes, jamais de numéros de téléphone.")
+            appendLine("- Dans \"days\", ne mets que des noms (jamais de numéros) : les numéros vont uniquement dans la liste \"medecins\".")
         }.trimEnd()
     }
 
@@ -236,7 +277,9 @@ object PromptBuilder {
             return "    {\"date\": \"${month.atDay(day.coerceAtMost(month.lengthOfMonth()))}\"" +
                 (if (parts.isEmpty()) "" else ", " + parts.joinToString(", ")) + "}"
         }
-        return "{\n  \"month\": \"$month\",\n  \"days\": [\n" +
+        return "{\n  \"month\": \"$month\",\n" +
+            "  \"medecins\": [\n    {\"nom\": \"$a\", \"telephone\": \"06 00 00 00 01\"},\n    {\"nom\": \"$b\", \"telephone\": \"\"}\n  ],\n" +
+            "  \"days\": [\n" +
             day(1, listOf(a, b, c)) + ",\n" + day(2, listOf(b, c, a)) + "\n  ]\n}"
     }
 }

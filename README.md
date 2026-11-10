@@ -21,7 +21,8 @@ Application Android personnelle (hors Play Store) qui change toute seule le **re
 
 1. Onglet **Import** : choisissez le mois, ajoutez au besoin des précisions (« la colonne Garde = 18:00 »), puis **Copier** ou **Partager…** la consigne.
 2. Envoyez la consigne **avec la photo** à un assistant IA (Claude, ChatGPT…). Il répond par un bloc JSON.
-3. Collez la réponse dans l'app, **Analyser** : un aperçu jour par jour s'affiche. Les noms non reconnus se rattachent à un médecin de votre liste (ou s'ignorent).
+3. Collez la réponse dans l'app, **Analyser** : un aperçu jour par jour s'affiche. Les noms non reconnus se rattachent à un médecin de votre liste (ou s'ignorent, ou deviennent un nouveau médecin).
+   La consigne demande aussi à l'assistant de **recopier les médecins et leurs numéros lus sur la photo** : l'aperçu propose de les ajouter à la liste (ou de compléter un numéro manquant, par exemple celui du Standard). Un numéro déjà enregistré n'est jamais écrasé, et les numéros de votre liste ne sont jamais envoyés à l'assistant. **Relisez les numéros** : un LLM peut se tromper d'un chiffre.
 4. **Appliquer** : seuls les créneaux présents dans la réponse sont remplacés. Relisez toujours le résultat dans le Planning : un LLM peut mal lire une photo.
 
 ## Commande par SMS (optionnelle, désactivée par défaut)
@@ -66,6 +67,8 @@ Au premier lancement, l'app demande le rôle du téléphone (modifiable dans **R
 | Médecins | Modifiables (fait foi) | Lecture seule, reçus du relais |
 | Onglet « Synchro » | – | Oui |
 
+**iPhone** : l'application n'existe que pour Android, sans version iOS prévue. Un médecin qui a un iPhone n'a donc pas le mode consultation : il se débrouille avec les commandes par SMS (qui fonctionnent depuis n'importe quel téléphone) et reçoit les messages automatiques comme les autres.
+
 Un fichier de données créé par une version d'avant les rôles reste en mode **relais** : rien ne change pour le téléphone d'astreinte existant.
 
 ## Synchronisation relais ↔ consultation (par SMS)
@@ -83,6 +86,20 @@ Le relais fait foi. Sur le téléphone de consultation, onglet **Synchro** :
 - Les ajouts de médecins se font **sur le relais** (leurs numéros ne transitent que dans le sens relais → consultation).
 - Chaque synchro coûte quelques SMS (≈ 3 par tranche de 430 caractères).
 - Vrai SMS obligatoire (pas de RCS), comme pour les autres commandes.
+
+## Historique : qui modifie le planning
+
+Chaque modification du planning est enregistrée dans le fichier de données : **date et heure, auteur, canal, cases modifiées** (avant → après).
+
+| Canal | Auteur inscrit |
+|---|---|
+| Grille, édition d'une journée, sélection multiple | le nom saisi dans **Réglages → Mon nom** (« Ce téléphone » à défaut) |
+| Import depuis une photo | idem, canal « Import photo » |
+| Commande par SMS (relais) | le médecin et son numéro d'expéditeur |
+| Synchro reçue d'un téléphone de consultation (relais) | le médecin et son numéro |
+| Planning reçu du relais (consultation) | « Relais », en une ligne de résumé |
+
+Consultable et partageable dans **Réglages → Historique des modifications du planning** (400 entrées conservées, 40 lignes de détail par entrée). Le relais fait foi : son historique est la référence ; chaque téléphone de consultation garde celui de ses propres modifications. Cet historique est local : il n'est pas transmis par SMS.
 
 ## Messages automatiques aux médecins (relais)
 

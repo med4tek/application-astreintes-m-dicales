@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -74,6 +75,20 @@ fun ImportScreen(
     // nom inconnu -> identifiant de médecin choisi (KEY_KEEP = ignorer)
     var mapping by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var appliedMessage by remember { mutableStateOf<String?>(null) }
+    // Médecins (nom + numéro) lus sur la photo par l'assistant, et identifiants prévus pour les nouveaux
+    var photoDoctors by remember { mutableStateOf<List<DoctorList.Entry>>(emptyList()) }
+    var idPool by remember { mutableStateOf<List<String>>(emptyList()) }
+    var addDoctors by remember { mutableStateOf(true) }
+
+    fun idGen(): () -> String {
+        val it = idPool.iterator()
+        return { if (it.hasNext()) it.next() else UUID.randomUUID().toString() }
+    }
+    fun mergedDoctors(base: List<Doctor>, withPhoto: Boolean): List<Doctor> =
+        if (withPhoto && photoDoctors.isNotEmpty()) DoctorList.merge(base, photoDoctors, idGen()).doctors else base
+    fun analyze(withPhoto: Boolean) {
+        result = ImportParser.parse(pasted, mergedDoctors(snap.doctors, withPhoto), snap.settings.slots, snap.aliases)
+    }
 
     val prompt = remember(snap.doctors, snap.settings.slots, monthIndex, notes) {
         PromptBuilder.build(month, snap.doctors, snap.settings.slots, notes)
@@ -155,7 +170,10 @@ fun ImportScreen(
                     Button(
                         enabled = pasted.isNotBlank(),
                         onClick = {
-                            result = ImportParser.parse(pasted, snap.doctors, snap.settings.slots, snap.aliases)
+                            photoDoctors = ImportParser.parse(pasted, snap.doctors, snap.settings.slots, snap.aliases).doctors
+                            idPool = photoDoctors.map { UUID.randomUUID().toString() }
+                            addDoctors = true
+                            analyze(true)
                             mapping = emptyMap()
                             appliedMessage = null
                         },
@@ -167,11 +185,16 @@ fun ImportScreen(
 
         // ---------------------------------------------------------------- étape 3 : aperçu
         result?.let { r ->
+            val docPlan = if (photoDoctors.isEmpty()) null else DoctorList.merge(snap.doctors, photoDoctors, idGen())
             PreviewCard(
-                snap = snap,
+                snap = snap.copy(doctors = mergedDoctors(snap.doctors, addDoctors)),
                 result = r,
                 mapping = mapping,
                 onMap = { name, id -> mapping = mapping + (name to id) },
+                docPlan = docPlan,
+                existingDoctors = snap.doctors,
+                addDoctors = addDoctors,
+                onToggleDoctors = { v -> addDoctors = v; mapping = emptyMap(); analyze(v) },
                 onApply = {
                     // Les noms inconnus peuvent devenir de nouveaux médecins (numéro à compléter ensuite)
                     val created = r.unknownNames.filter { mapping[it] == KEY_NEW }
@@ -182,9 +205,10 @@ fun ImportScreen(
                     val edits = ImportParser.toEdits(r.items, resolved)
                     // Ce que l'utilisateur a associé est mémorisé : le prochain import le reconnaîtra tout seul
                     val learned = resolved.mapKeys { NameMatcher.normalize(it.key) }.filterKeys { it.isNotEmpty() }
+                    val plan = if (addDoctors && photoDoctors.isNotEmpty()) DoctorList.merge(snap.doctors, photoDoctors, idGen()) else null
                     onEdit { s ->
                         s.copy(
-                            doctors = s.doctors + created.values,
+                            doctors = mergedDoctors(s.doctors, addDoctors) + created.values,
                             shifts = Planner.applyEdits(s.shifts, edits) { UUID.randomUUID().toString() },
                             aliases = s.aliases + learned,
                         )
@@ -192,6 +216,7 @@ fun ImportScreen(
                     val skipped = r.items.size - edits.size
                     appliedMessage = "${edits.size} case(s) enregistrée(s) dans le planning" +
                         (if (skipped > 0) " ($skipped ignorée(s))" else "") + "." +
+                        (if (plan != null && (plan.added + plan.updated) > 0) " Médecins : ${plan.added} ajouté(s), ${plan.updated} numéro(s) complété(s)." else "") +
                         (if (created.isNotEmpty()) " ${created.size} médecin(s) ajouté(s) SANS numéro : complétez-les dans l'onglet Médecins." else "")
                     result = null
                     pasted = ""
@@ -216,6 +241,10 @@ private fun PreviewCard(
     result: ImportResult,
     mapping: Map<String, String?>,
     onMap: (String, String?) -> Unit,
+    docPlan: DoctorList.MergeResult?,
+    existingDoctors: List<Doctor>,
+    addDoctors: Boolean,
+    onToggleDoctors: (Boolean) -> Unit,
     onApply: () -> Unit,
 ) {
     val byDate = result.items.groupBy { it.date }
@@ -223,13 +252,40 @@ private fun PreviewCard(
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("3. Vérification", style = MaterialTheme.typography.titleMedium)
+            val doctorsOnly = result.items.isEmpty() && docPlan != null && addDoctors && (docPlan.added + docPlan.updated) > 0
             if (result.items.isEmpty()) {
-                Text("Aucune affectation reconnue.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                Text(if (docPlan != null) "Aucune affectation de planning dans cette réponse." else "Aucune affectation reconnue.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
             } else {
                 Text("${result.items.size} affectation(s) sur ${result.dayCount} jour(s).", fontWeight = FontWeight.Bold)
             }
             result.problems.forEach {
                 Text("⚠ $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+
+            // Médecins et numéros lus sur la photo
+            if (docPlan != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = addDoctors, onCheckedChange = onToggleDoctors)
+                    Column {
+                        Text("Médecins lus sur la photo", fontWeight = FontWeight.Bold)
+                        Text(
+                            "${docPlan.added} à ajouter · ${docPlan.updated} numéro(s) complété(s) · ${docPlan.unchanged} déjà présent(s)",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                if (addDoctors) {
+                    val known = existingDoctors.associateBy { it.id }
+                    docPlan.doctors.filter { known[it.id] == null || (known[it.id]!!.phone.isBlank() && it.phone.isNotBlank()) }.forEach { d ->
+                        val tag = if (known[d.id] == null) "+" else "n°"
+                        Text("$tag ${d.name}" + if (d.phone.isBlank()) "  (sans numéro)" else "  ${d.phone}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(
+                        "Vérifiez les numéros lus par l'assistant : un chiffre faux enverrait le renvoi d'appel à la mauvaise personne.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
 
             // Correspondances faites automatiquement (« Alice » -> Alice Durand…)
@@ -282,13 +338,19 @@ private fun PreviewCard(
                 Text("${date.shortLabel()} — $line", style = MaterialTheme.typography.bodySmall)
             }
 
-            if (result.items.isNotEmpty()) {
+            if (result.items.isNotEmpty() || doctorsOnly) {
                 Text(
                     "L'application remplace uniquement les créneaux présents dans cette réponse.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Button(onClick = onApply, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (unresolved > 0) "Appliquer (en ignorant $unresolved nom(s))" else "Appliquer au planning")
+                    Text(
+                        when {
+                            doctorsOnly -> "Enregistrer les médecins"
+                            unresolved > 0 -> "Appliquer (en ignorant $unresolved nom(s))"
+                            else -> "Appliquer au planning"
+                        }
+                    )
                 }
             }
         }

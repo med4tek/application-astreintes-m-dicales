@@ -1,6 +1,7 @@
 package fr.astreinte.relais.sys
 
 import android.content.Context
+import fr.astreinte.relais.core.Author
 import fr.astreinte.relais.core.Codes
 import fr.astreinte.relais.core.LogEntry
 import fr.astreinte.relais.core.Planner
@@ -60,7 +61,9 @@ object SmsHandler {
         val ack = if (chunk == null) SyncCodec.parseAck(body) else null
         if (chunk == null && ack == null) return onDone()
 
-        Store.update { s -> if (chunk != null) SyncLogic.onDataChunk(s, chunk, now) else SyncLogic.onAck(s, ack!!, now) }
+        Store.update(Author(Author.VIA_SYNC, who = "Relais", collapse = true)) { s ->
+            if (chunk != null) SyncLogic.onDataChunk(s, chunk, now) else SyncLogic.onAck(s, ack!!, now)
+        }
         val after = Store.snapshot.value.sync
         // La synchronisation vient de se terminer (succès ou refus) : on le dit
         if (hadPending && after.pending == null && after.lastResult.isNotBlank()) {
@@ -124,7 +127,7 @@ object SmsHandler {
             }
             is SmsAction.Edit -> {
                 val summary = SmsCommands.describe(action.groups, snap.doctors)
-                Store.update { s ->
+                Store.update(Author(Author.VIA_SMS, who = senderName(snap, sender))) { s ->
                     s.copy(shifts = SmsCommands.apply(s.shifts, action.groups) { UUID.randomUUID().toString() })
                 }
                 log(sender, true, "Planning modifié : $summary")
@@ -148,7 +151,7 @@ object SmsHandler {
                 }
                 val cells = SyncCodec.countCells(action.groups)
                 val summary = SmsCommands.describe(action.groups, snap.doctors)
-                Store.update { s ->
+                Store.update(Author("Synchro SMS", who = senderName(snap, sender))) { s ->
                     s.copy(shifts = SmsCommands.apply(s.shifts, action.groups) { UUID.randomUUID().toString() })
                 }
                 log(sender, true, "Synchronisation reçue ${action.part}/${action.total} : $cells case(s)")
@@ -157,6 +160,12 @@ object SmsHandler {
                 Relay.reconcile(app, Relay.Trigger.EDIT, onDone = onDone)
             }
         }
+    }
+
+    /** Qui est derrière ce numéro : le médecin enregistré, sinon le numéro lui-même (numéro autorisé « en plus »). */
+    internal fun senderName(snap: Snapshot, sender: String): String {
+        val doctor = snap.doctors.firstOrNull { it.id != STANDARD_ID && Codes.samePhone(it.phone, sender) }
+        return if (doctor != null) "${doctor.name} ($sender)" else sender
     }
 
     /** Une consultation n'a de sens que si la réponse par SMS est possible : sinon on le dit dans le journal. */

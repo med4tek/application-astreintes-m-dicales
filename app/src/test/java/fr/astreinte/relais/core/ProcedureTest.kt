@@ -171,3 +171,120 @@ class ChangeNoticeTest {
         assertTrue(old.aliases.isEmpty())
     }
 }
+
+class HistoryTest {
+    private val d = java.time.LocalDate.of(2026, 11, 12)
+    private fun shift(id: String, h: Int, who: String?) = Shift(id, d, java.time.LocalTime.of(h, 0), who)
+    private val base = Snapshot(doctors = STAFF, shifts = listOf(shift("1", 18, "a")))
+
+    @Test fun `un changement de case est decrit avec avant et apres`() {
+        val lines = History.describe(base.shifts, listOf(shift("1", 18, "b"), shift("2", 12, "c")), STAFF)
+        assertEquals(listOf("12/11 12h : défaut → Claire Dubois", "12/11 18h : Alice Durand → Bruno Martin"), lines)
+    }
+
+    @Test fun `suppression et aucun renvoi sont distingues`() {
+        assertEquals(listOf("12/11 18h : Alice Durand → défaut"), History.describe(base.shifts, emptyList(), STAFF))
+        assertEquals(listOf("12/11 18h : Alice Durand → aucun renvoi"), History.describe(base.shifts, listOf(shift("1", 18, null)), STAFF))
+    }
+
+    @Test fun `rien n'est enregistre si le planning est identique`() {
+        val same = base.copy(shifts = listOf(shift("autre-id", 18, "a")))
+        assertTrue(History.record(base, same, Author(Author.VIA_APP), 1L).history.isEmpty())
+    }
+
+    @Test fun `l'auteur par defaut est le nom saisi dans les reglages`() {
+        val next = base.copy(shifts = listOf(shift("1", 18, "b")), settings = base.settings.copy(userName = "Dr Test"))
+        val e = History.record(base, next, Author(Author.VIA_IMPORT), 42L).history.single()
+        assertEquals("Dr Test", e.who); assertEquals("Import photo", e.via); assertEquals(1, e.cells); assertEquals(42L, e.at)
+        val anon = History.record(base, base.copy(shifts = emptyList()), Author(Author.VIA_APP), 1L).history.single()
+        assertEquals(History.DEFAULT_WHO, anon.who)
+    }
+
+    @Test fun `un auteur explicite l'emporte, les plus recents d'abord, liste bornee`() {
+        var s = base
+        repeat(History.MAX_ENTRIES + 5) { i ->
+            val next = s.copy(shifts = listOf(shift("1", 18, if (i % 2 == 0) "b" else "a")))
+            s = History.record(s, next, Author(Author.VIA_SMS, who = "Dr X (0600000000)"), i.toLong())
+        }
+        assertEquals(History.MAX_ENTRIES, s.history.size)
+        assertEquals((History.MAX_ENTRIES + 4).toLong(), s.history.first().at)
+        assertEquals("Dr X (0600000000)", s.history.first().who)
+    }
+
+    @Test fun `un gros remplacement est resume et le detail tronque`() {
+        val many = (0 until 60).map { Shift("s$it", d.plusDays(it.toLong()), java.time.LocalTime.of(18, 0), "a") }
+        val e = History.record(base.copy(shifts = emptyList()), base.copy(shifts = many), Author("Test"), 1L).history.single()
+        assertEquals(60, e.cells); assertEquals(History.MAX_LINES + 1, e.lines.size); assertTrue(e.lines.last().contains("20 autre"))
+        val c = History.record(base.copy(shifts = emptyList()), base.copy(shifts = many), Author("Synchro", collapse = true), 1L).history.single()
+        assertEquals(1, c.lines.size)
+    }
+
+    @Test fun `l'historique et le nom survivent a la sauvegarde`() {
+        val s = base.copy(
+            history = listOf(HistoryEntry(5L, "Dr Test", "SMS", 2, listOf("12/11 18h : A → B", "12/11 12h : défaut → C"))),
+            settings = base.settings.copy(userName = "Dr Test"),
+        )
+        assertEquals(s, SnapshotJson.fromJson(SnapshotJson.toJson(s)))
+        assertTrue(SnapshotJson.fromJson("""{"settings":{"mode":"RELAY"}}""").history.isEmpty())
+    }
+}
+
+class PhotoDoctorsTest {
+    private val slots = DEFAULT_SLOTS
+
+    @Test fun `la liste medecins du JSON est lue avec ses numeros`() {
+        val json = """```json
+{"month":"2026-11","medecins":[{"nom":"DUPONT Alice","telephone":"06 00 00 00 01"},{"nom":"Bruno Martin","telephone":""},
+{"nom":"Standard","telephone":"02 00 00 00 00"},"Claire ; 07.00.00.00.02"],
+"days":[{"date":"2026-11-02","18:00":"Alice"}]}
+```"""
+        val r = ImportParser.parse(json, STAFF, slots)
+        assertEquals(
+            listOf(
+                DoctorList.Entry("Dupont Alice", "06 00 00 00 01"),
+                DoctorList.Entry("Bruno Martin", ""),
+                DoctorList.Entry(STANDARD_DOCTOR.name, "02 00 00 00 00"),
+                DoctorList.Entry("Claire", "07.00.00.00.02"),
+            ),
+            r.doctors,
+        )
+        assertEquals(1, r.items.size)
+    }
+
+    @Test fun `un numero illisible est ignore, pas le medecin`() {
+        val r = ImportParser.parse("""{"medecins":[{"nom":"Zoe Test","telephone":"voir feuille"}],"days":[]}""", STAFF, slots)
+        assertEquals(listOf(DoctorList.Entry("Zoe Test", "")), r.doctors)
+    }
+
+    @Test fun `des medecins sans jours sont acceptes, sans medecins ni jours c'est une erreur`() {
+        assertEquals(1, ImportParser.parse("""{"medecins":[{"nom":"Zoe Test","telephone":"0600000009"}]}""", STAFF, slots).doctors.size)
+        assertTrue(ImportParser.parse("""{"month":"2026-11"}""", STAFF, slots).problems.isNotEmpty())
+    }
+
+    @Test fun `fusion avec la liste existante - le standard est complete, rien n est ecrase`() {
+        val r = ImportParser.parse(
+            """{"medecins":[{"nom":"Standard","telephone":"02 00 00 00 00"},{"nom":"Alice Durand","telephone":"06 99 99 99 99"},{"nom":"Zoe Test","telephone":"0600000009"}],"days":[]}""",
+            STAFF, slots,
+        )
+        val m = DoctorList.merge(STAFF, r.doctors) { "new" }
+        assertEquals(1, m.added); assertEquals(1, m.updated); assertEquals(1, m.unchanged)
+        assertEquals("02 00 00 00 00", m.doctors.first { it.id == STANDARD_ID }.phone)
+        assertEquals("0612345678", m.doctors.first { it.id == "a" }.phone)
+    }
+
+    @Test fun `un nouveau medecin lu sur la photo est reconnu dans le planning`() {
+        val json = """{"medecins":[{"nom":"Zoe Test","telephone":"0600000009"}],"days":[{"date":"2026-11-02","18:00":"Zoe"}]}"""
+        val first = ImportParser.parse(json, STAFF, slots)
+        val withNew = DoctorList.merge(STAFF, first.doctors) { "zz" }.doctors
+        assertTrue(ImportParser.parse(json, STAFF, slots).items.single().target is Target.Unknown)
+        assertEquals(Target.Doc("zz"), ImportParser.parse(json, withNew, slots).items.single().target)
+    }
+
+    @Test fun `la consigne demande les noms et numeros lus sur la photo, sans les numeros de la liste`() {
+        val p = PromptBuilder.build(java.time.YearMonth.of(2026, 11), STAFF, slots, "")
+        assertTrue(p.contains("\"medecins\"")); assertTrue(p.contains("\"telephone\""))
+        assertTrue(p.contains("JAMAIS un numéro"))
+        // les numéros déjà enregistrés dans l'app ne sont jamais envoyés à l'assistant
+        STAFF.forEach { if (it.phone.isNotBlank()) assertTrue(!p.contains(it.phone)) }
+    }
+}

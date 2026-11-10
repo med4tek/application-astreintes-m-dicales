@@ -126,6 +126,8 @@ data class Settings(
     val changeNotify: Boolean = true,
     val changeTextNew: String = DEFAULT_CHANGE_NEW,
     val changeTextOld: String = DEFAULT_CHANGE_OLD,
+    /** Nom de l'utilisateur de ce téléphone, inscrit dans l'historique des modifications du planning. */
+    val userName: String = "",
 ) {
     val isRelay: Boolean get() = mode == Mode.RELAY
     val isViewer: Boolean get() = mode == Mode.VIEWER
@@ -189,6 +191,8 @@ data class Snapshot(
     val sentMessages: List<String> = emptyList(),
     /** Correspondances mémorisées nom du planning (normalisé) -> id du médecin, apprises à l'import. */
     val aliases: Map<String, String> = emptyMap(),
+    /** Qui a modifié le planning, quand, par quel canal (les plus récentes d'abord). */
+    val history: List<HistoryEntry> = emptyList(),
 ) {
     fun doctor(id: String?): Doctor? = id?.let { wanted -> doctors.firstOrNull { it.id == wanted } }
 }

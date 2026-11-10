@@ -237,6 +237,9 @@ fun SettingsScreen(
         } else {
             ViewerSettings(snap, resumeTick, callOk = notifOk, permLauncher = { permLauncher.launch(it) })
         }
+
+        HorizontalDivider()
+        HistorySection(snap, onEdit)
     }
 
     if (confirmEnable) {

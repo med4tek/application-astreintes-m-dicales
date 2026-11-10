@@ -33,6 +33,15 @@ object SnapshotJson {
         put("aliases", JSONObject().apply { s.aliases.forEach { (k, v) -> put(k, v) } })
         put("sync", syncToJson(s.sync))
         put("sentMessages", JSONArray(s.sentMessages))
+        put("history", JSONArray().apply {
+            s.history.forEach {
+                put(
+                    JSONObject()
+                        .put("at", it.at).put("who", it.who).put("via", it.via).put("cells", it.cells)
+                        .put("lines", JSONArray(it.lines))
+                )
+            }
+        })
         put("log", JSONArray().apply {
             s.log.forEach {
                 put(
@@ -85,6 +94,15 @@ object SnapshotJson {
             baseline = shiftsFromJson(root.optJSONArray("baseline")),
             sync = root.optJSONObject("sync")?.let { syncFromJson(it) } ?: SyncState(),
             aliases = root.optJSONObject("aliases")?.let { a -> a.keys().asSequence().associateWith { a.getString(it) } } ?: emptyMap(),
+            history = root.optJSONArray("history").toList { o ->
+                HistoryEntry(
+                    at = o.optLong("at", 0L),
+                    who = o.optString("who", ""),
+                    via = o.optString("via", ""),
+                    cells = o.optInt("cells", 0),
+                    lines = o.optJSONArray("lines")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+                )
+            },
             sentMessages = root.optJSONArray("sentMessages")?.let { a -> (0 until a.length()).map { a.getString(it) } }
                 ?: emptyList(),
         )
@@ -139,6 +157,7 @@ object SnapshotJson {
         .put("changeNotify", st.changeNotify)
         .put("changeTextNew", st.changeTextNew)
         .put("changeTextOld", st.changeTextOld)
+        .put("userName", st.userName)
         .put("msgRules", JSONArray().apply {
             st.msgRules.forEach {
                 put(
@@ -177,6 +196,7 @@ object SnapshotJson {
         changeNotify = o.optBoolean("changeNotify", true),
         changeTextNew = o.optString("changeTextNew", DEFAULT_CHANGE_NEW),
         changeTextOld = o.optString("changeTextOld", DEFAULT_CHANGE_OLD),
+        userName = o.optString("userName", ""),
         msgRules = o.optJSONArray("msgRules")?.toList { r ->
             MessageRule(
                 id = r.getString("id"),

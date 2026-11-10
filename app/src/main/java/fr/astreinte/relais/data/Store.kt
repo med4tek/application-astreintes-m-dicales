@@ -2,6 +2,8 @@ package fr.astreinte.relais.data
 
 import android.content.Context
 import android.util.Log
+import fr.astreinte.relais.core.Author
+import fr.astreinte.relais.core.History
 import fr.astreinte.relais.core.Snapshot
 import fr.astreinte.relais.core.SnapshotJson
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,9 +36,17 @@ object Store {
         }
     }
 
+    /**
+     * [by] : qui est à l'origine de la modification. Si le planning change, une entrée est ajoutée à
+     * l'historique (par défaut : l'utilisateur de ce téléphone, saisie dans l'application).
+     */
     @Synchronized
-    fun update(block: (Snapshot) -> Snapshot) {
-        val next = block(_snapshot.value)
+    fun update(by: Author? = null, block: (Snapshot) -> Snapshot) {
+        val prev = _snapshot.value
+        var next = block(prev)
+        if (next.shifts !== prev.shifts) {
+            next = History.record(prev, next, by ?: Author(Author.VIA_APP), System.currentTimeMillis())
+        }
         _snapshot.value = next
         save(next)
     }

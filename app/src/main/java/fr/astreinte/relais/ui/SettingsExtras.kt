@@ -632,3 +632,66 @@ private fun MessageRuleDialog(
     )
     if (pickAt) TimeDialog("Heure d'envoi", at, { pickAt = false }) { at = it; pickAt = false }
 }
+
+// ====================================================================== historique du planning
+
+/** Qui a modifié le planning, quand et comment : consultable, partageable, conservé dans le fichier de données. */
+@Composable
+fun HistorySection(snap: Snapshot, onEdit: ((Snapshot) -> Snapshot) -> Unit) {
+    val context = LocalContext.current
+    val fmt = remember { java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.FRANCE) }
+    var showAll by remember { mutableStateOf(false) }
+    val dateOf: (Long) -> String = { fmt.format(java.util.Date(it)) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Historique des modifications du planning", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Chaque modification est enregistrée : date, auteur, canal (saisie, import photo, SMS, synchro) et cases changées. " +
+                "Sur le relais, les SMS indiquent le médecin et son numéro ; sur ce téléphone, c'est le nom ci-dessous.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        OutlinedTextField(
+            value = snap.settings.userName,
+            onValueChange = { v -> onEdit { it.copy(settings = it.settings.copy(userName = v.take(60))) } },
+            label = { Text("Mon nom (inscrit dans l'historique)") },
+            placeholder = { Text("Ex. Dr Martin") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (snap.history.isEmpty()) Text("Aucune modification enregistrée.", style = MaterialTheme.typography.bodySmall)
+        snap.history.take(8).forEach { HistoryRow(it, dateOf) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (snap.history.size > 8) TextButton(onClick = { showAll = true }) { Text("Tout afficher (${snap.history.size})") }
+            if (snap.history.isNotEmpty()) TextButton(onClick = {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, fr.astreinte.relais.core.History.asText(snap.history, dateOf))
+                }
+                context.startActivity(Intent.createChooser(send, "Partager l'historique").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }) { Text("Partager l'historique") }
+        }
+    }
+
+    if (showAll) {
+        AlertDialog(
+            onDismissRequest = { showAll = false },
+            title = { Text("Historique (${snap.history.size})") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    snap.history.forEach { HistoryRow(it, dateOf) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAll = false }) { Text("Fermer") } },
+        )
+    }
+}
+
+@Composable
+private fun HistoryRow(e: fr.astreinte.relais.core.HistoryEntry, dateOf: (Long) -> String) {
+    Column {
+        Text("${dateOf(e.at)} · ${e.who}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+        Text("${e.via} · ${e.cells} case(s)", style = MaterialTheme.typography.labelMedium)
+        e.lines.take(6).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        if (e.lines.size > 6) Text("… +${e.lines.size - 6} ligne(s)", style = MaterialTheme.typography.bodySmall)
+    }
+}
