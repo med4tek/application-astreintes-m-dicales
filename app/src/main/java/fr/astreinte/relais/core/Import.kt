@@ -35,7 +35,12 @@ object ImportParser {
     private val IGNORED_KEYS = setOf("date", "jour", "day", "weekday", "note", "notes", "comment", "commentaire")
     private val TIME_KEY = Regex("^(\\d{1,2})\\s*[h:]\\s*(\\d{2})?$", RegexOption.IGNORE_CASE)
 
-    fun parse(text: String, doctors: List<Doctor>, slots: List<Slot>): ImportResult {
+    fun parse(
+        text: String,
+        doctors: List<Doctor>,
+        slots: List<Slot>,
+        aliases: Map<String, String> = emptyMap(),
+    ): ImportResult {
         val problems = ArrayList<String>()
         val json = extractJson(sanitize(text))
             ?: return ImportResult(emptyList(), listOf("Aucun bloc JSON trouvé dans le texte collé."))
@@ -90,7 +95,7 @@ object ImportParser {
                 if (time !in slotTimes && warnedTimes.add(time)) {
                     problems += "L'heure ${time} ne correspond à aucun créneau : ajoutée comme changement libre."
                 }
-                items += ImportItem(date, time, raw, classify(raw, doctors))
+                items += ImportItem(date, time, raw, classify(raw, doctors, aliases))
             }
         }
         return ImportResult(items.sortedWith(compareBy({ it.date }, { it.time })), problems)
@@ -114,12 +119,17 @@ object ImportParser {
         return out
     }
 
-    private fun classify(raw: String, doctors: List<Doctor>): Target {
+    private fun classify(raw: String, doctors: List<Doctor>, aliases: Map<String, String>): Target {
         val key = ascii(raw).uppercase(Locale.ROOT).trim()
         return when (key) {
             "AUCUN", "AUCUN RENVOI", "OFF", "RIEN" -> Target.Off
             "DEFAUT", "DEFAULT", "PAR DEFAUT" -> Target.Clear
-            else -> NameMatcher.find(raw, doctors)?.let { Target.Doc(it.id) } ?: Target.Unknown(raw)
+            else -> {
+                // 1) correspondance mémorisée à un import précédent, 2) reconnaissance par le nom
+                val remembered = aliases[NameMatcher.normalize(raw)]?.takeIf { id -> doctors.any { it.id == id } }
+                if (remembered != null) Target.Doc(remembered)
+                else NameMatcher.find(raw, doctors)?.let { Target.Doc(it.id) } ?: Target.Unknown(raw)
+            }
         }
     }
 
@@ -195,7 +205,8 @@ object PromptBuilder {
             appendLine("MÉDECINS CONNUS")
             if (names.isEmpty()) appendLine("(aucun pour l'instant)") else appendLine(names.joinToString(", "))
             if (standard != null) appendLine("Le « ${standard.name} » désigne le standard d'urgence : écris exactement « ${standard.name} » s'il est indiqué.")
-            appendLine("Quand une personne de la photo correspond à un médecin connu, utilise EXACTEMENT son nom de la liste. Sinon recopie le nom tel qu'il est écrit.")
+            appendLine("Sur un planning les médecins sont souvent désignés par leur prénom seul ou leur nom seul : associe chaque désignation au médecin correspondant de la liste et écris son nom EXACT tel qu'il figure dans la liste.")
+            appendLine("Si une case contient autre chose qu'un médecin (nom d'un lieu ou d'un service par exemple), recopie-la telle qu'elle est écrite. Si personne de la liste ne correspond, recopie le nom tel qu'il est écrit.")
             if (notes.isNotBlank()) {
                 appendLine()
                 appendLine("PRÉCISIONS SUR CE PLANNING")

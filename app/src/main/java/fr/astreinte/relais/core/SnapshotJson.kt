@@ -28,7 +28,9 @@ object SnapshotJson {
                 .put("attempts", s.state.attempts)
                 .put("lastSmsAt", s.state.lastSmsAt)
                 .put("lastSmsWasCommand", s.state.lastSmsWasCommand)
+                .put("lastTarget", s.state.lastTarget)
         )
+        put("aliases", JSONObject().apply { s.aliases.forEach { (k, v) -> put(k, v) } })
         put("sync", syncToJson(s.sync))
         put("sentMessages", JSONArray(s.sentMessages))
         put("log", JSONArray().apply {
@@ -62,6 +64,7 @@ object SnapshotJson {
                 attempts = o.optInt("attempts", 0),
                 lastSmsAt = o.optLong("lastSmsAt", 0L),
                 lastSmsWasCommand = o.optBoolean("lastSmsWasCommand", false),
+                lastTarget = o.optString("lastTarget", ""),
             )
         } ?: ApplyState()
         val log = root.optJSONArray("log").toList { o ->
@@ -81,6 +84,7 @@ object SnapshotJson {
             log = log,
             baseline = shiftsFromJson(root.optJSONArray("baseline")),
             sync = root.optJSONObject("sync")?.let { syncFromJson(it) } ?: SyncState(),
+            aliases = root.optJSONObject("aliases")?.let { a -> a.keys().asSequence().associateWith { a.getString(it) } } ?: emptyMap(),
             sentMessages = root.optJSONArray("sentMessages")?.let { a -> (0 until a.length()).map { a.getString(it) } }
                 ?: emptyList(),
         )
@@ -132,6 +136,9 @@ object SnapshotJson {
         .put("mode", st.mode)
         .put("relayNumber", st.relayNumber)
         .put("msgEnabled", st.msgEnabled)
+        .put("changeNotify", st.changeNotify)
+        .put("changeTextNew", st.changeTextNew)
+        .put("changeTextOld", st.changeTextOld)
         .put("msgRules", JSONArray().apply {
             st.msgRules.forEach {
                 put(
@@ -167,6 +174,9 @@ object SnapshotJson {
         mode = if (o.has("mode")) o.optString("mode", Mode.NONE) else Mode.RELAY,
         relayNumber = o.optString("relayNumber", ""),
         msgEnabled = o.optBoolean("msgEnabled", false),
+        changeNotify = o.optBoolean("changeNotify", true),
+        changeTextNew = o.optString("changeTextNew", DEFAULT_CHANGE_NEW),
+        changeTextOld = o.optString("changeTextOld", DEFAULT_CHANGE_OLD),
         msgRules = o.optJSONArray("msgRules")?.toList { r ->
             MessageRule(
                 id = r.getString("id"),

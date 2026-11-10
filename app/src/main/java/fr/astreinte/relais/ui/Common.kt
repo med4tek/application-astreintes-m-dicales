@@ -63,6 +63,7 @@ fun LocalTime.shortHour(): String = if (minute == 0) "${hour}h" else "%dh%02d".f
 /** Valeurs spéciales du sélecteur (en plus d'un identifiant de médecin ou de null = aucun renvoi). */
 const val KEY_DEFAULT = "\u0000default"
 const val KEY_KEEP = "\u0000keep"
+const val KEY_NEW = "\u0000new"
 
 /**
  * Sélecteur de cible du renvoi. [value] : un identifiant de médecin, `null` (= aucun renvoi),
@@ -81,10 +82,12 @@ fun TargetPicker(
     keepLabel: String? = null,
     defaultLabel: String? = null,
     allowOff: Boolean = true,
+    newLabel: String? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     val label = when (value) {
         KEY_KEEP -> keepLabel ?: "—"
+        KEY_NEW -> newLabel ?: "—"
         KEY_DEFAULT -> defaultLabel ?: "—"
         null -> "Aucun renvoi"
         else -> doctors.firstOrNull { it.id == value }?.name ?: "(médecin supprimé)"
@@ -101,6 +104,9 @@ fun TargetPicker(
             }
             if (defaultLabel != null) {
                 DropdownMenuItem(text = { Text(defaultLabel) }, onClick = { onChange(KEY_DEFAULT); open = false })
+            }
+            if (newLabel != null) {
+                DropdownMenuItem(text = { Text(newLabel) }, onClick = { onChange(KEY_NEW); open = false })
             }
             doctors.forEach { d ->
                 DropdownMenuItem(text = { Text(d.name) }, onClick = { onChange(d.id); open = false })

@@ -9,7 +9,9 @@ object NameMatcher {
 
     /** Minuscules, sans accents ni ponctuation, sans "Dr"/"Docteur"… */
     fun normalize(s: String): String {
-        val stripped = Normalizer.normalize(s.lowercase(Locale.ROOT), Normalizer.Form.NFD)
+        // "DrDupont" / "DrMARTIN" : le titre collé au nom est séparé avant la mise en minuscules
+        val spaced = s.replace(Regex("\\b(Dr|DR|Dre|Pr|PR)(?=\\p{Lu})"), "$1 ")
+        val stripped = Normalizer.normalize(spaced.lowercase(Locale.ROOT), Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
         return stripped.split(Regex("[^a-z0-9]+"))
             .filter { it.isNotEmpty() && it !in NOISE }

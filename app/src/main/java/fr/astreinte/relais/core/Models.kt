@@ -87,6 +87,11 @@ val DEFAULT_MESSAGE_RULES: List<MessageRule> = listOf(
     ),
 )
 
+const val DEFAULT_CHANGE_NEW =
+    "Bonjour {nom}, l'astreinte en cours vient de t'etre confiee (modification du planning a {heure}). La bascule vers ton numero est faite."
+const val DEFAULT_CHANGE_OLD =
+    "Bonjour {nom}, tu n'es plus d'astreinte pour l'instant (modification du planning a {heure}). Les appels ne te sont plus renvoyes."
+
 data class Settings(
     /** Interrupteur général : tant qu'il est à false, l'app n'envoie JAMAIS aucun code. */
     val enabled: Boolean = false,
@@ -117,6 +122,10 @@ data class Settings(
     /** Mode relais : messages automatiques aux médecins. */
     val msgEnabled: Boolean = false,
     val msgRules: List<MessageRule> = DEFAULT_MESSAGE_RULES,
+    /** Mode relais : prévenir par SMS quand une MODIFICATION change l'astreinte en cours. */
+    val changeNotify: Boolean = true,
+    val changeTextNew: String = DEFAULT_CHANGE_NEW,
+    val changeTextOld: String = DEFAULT_CHANGE_OLD,
 ) {
     val isRelay: Boolean get() = mode == Mode.RELAY
     val isViewer: Boolean get() = mode == Mode.VIEWER
@@ -133,6 +142,8 @@ data class ApplyState(
     /** Dernier SMS vu par l'app (date seulement, jamais le contenu) : sert à diagnostiquer la réception. */
     val lastSmsAt: Long = 0L,
     val lastSmsWasCommand: Boolean = false,
+    /** Cible du dernier renvoi réellement appliqué : "" = inconnue, "~off" = aucun renvoi, sinon id du médecin. */
+    val lastTarget: String = "",
 )
 
 data class LogEntry(
@@ -176,6 +187,8 @@ data class Snapshot(
     val sync: SyncState = SyncState(),
     /** Messages automatiques déjà envoyés ("date|règle"), pour ne jamais envoyer deux fois. */
     val sentMessages: List<String> = emptyList(),
+    /** Correspondances mémorisées nom du planning (normalisé) -> id du médecin, apprises à l'import. */
+    val aliases: Map<String, String> = emptyMap(),
 ) {
     fun doctor(id: String?): Doctor? = id?.let { wanted -> doctors.firstOrNull { it.id == wanted } }
 }

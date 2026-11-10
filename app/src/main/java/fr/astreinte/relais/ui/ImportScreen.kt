@@ -39,6 +39,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import fr.astreinte.relais.core.Doctor
+import fr.astreinte.relais.core.DoctorList
+import fr.astreinte.relais.core.NameMatcher
 import fr.astreinte.relais.core.ImportParser
 import fr.astreinte.relais.core.ImportResult
 import fr.astreinte.relais.core.Planner
@@ -152,7 +155,7 @@ fun ImportScreen(
                     Button(
                         enabled = pasted.isNotBlank(),
                         onClick = {
-                            result = ImportParser.parse(pasted, snap.doctors, snap.settings.slots)
+                            result = ImportParser.parse(pasted, snap.doctors, snap.settings.slots, snap.aliases)
                             mapping = emptyMap()
                             appliedMessage = null
                         },
@@ -170,12 +173,26 @@ fun ImportScreen(
                 mapping = mapping,
                 onMap = { name, id -> mapping = mapping + (name to id) },
                 onApply = {
-                    val resolved = mapping.mapNotNull { (k, v) -> if (v == null || v == KEY_KEEP) null else k to v }.toMap()
+                    // Les noms inconnus peuvent devenir de nouveaux médecins (numéro à compléter ensuite)
+                    val created = r.unknownNames.filter { mapping[it] == KEY_NEW }
+                        .associateWith { Doctor(UUID.randomUUID().toString(), DoctorList.prettyName(it), "") }
+                    val resolved = LinkedHashMap<String, String>()
+                    mapping.forEach { (k, v) -> if (v != null && v != KEY_KEEP && v != KEY_NEW) resolved[k] = v }
+                    created.forEach { (k, d) -> resolved[k] = d.id }
                     val edits = ImportParser.toEdits(r.items, resolved)
-                    onEdit { s -> s.copy(shifts = Planner.applyEdits(s.shifts, edits) { UUID.randomUUID().toString() }) }
+                    // Ce que l'utilisateur a associé est mémorisé : le prochain import le reconnaîtra tout seul
+                    val learned = resolved.mapKeys { NameMatcher.normalize(it.key) }.filterKeys { it.isNotEmpty() }
+                    onEdit { s ->
+                        s.copy(
+                            doctors = s.doctors + created.values,
+                            shifts = Planner.applyEdits(s.shifts, edits) { UUID.randomUUID().toString() },
+                            aliases = s.aliases + learned,
+                        )
+                    }
                     val skipped = r.items.size - edits.size
                     appliedMessage = "${edits.size} case(s) enregistrée(s) dans le planning" +
-                        if (skipped > 0) " ($skipped ignorée(s))." else "."
+                        (if (skipped > 0) " ($skipped ignorée(s))" else "") + "." +
+                        (if (created.isNotEmpty()) " ${created.size} médecin(s) ajouté(s) SANS numéro : complétez-les dans l'onglet Médecins." else "")
                     result = null
                     pasted = ""
                 },
@@ -215,9 +232,20 @@ private fun PreviewCard(
                 Text("⚠ $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
 
+            // Correspondances faites automatiquement (« Alice » -> Alice Durand…)
+            val recognized = result.items.mapNotNull { item -> (item.target as? Target.Doc)?.let { item.raw to it.id } }
+                .distinctBy { NameMatcher.normalize(it.first) }
+                .mapNotNull { (raw, id) ->
+                    snap.doctor(id)?.takeIf { NameMatcher.normalize(it.name) != NameMatcher.normalize(raw) }?.let { raw to it.name }
+                }
+            if (recognized.isNotEmpty()) {
+                Text("Correspondances reconnues", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                recognized.forEach { (raw, name) -> Text("« $raw » → $name", style = MaterialTheme.typography.bodySmall) }
+            }
+
             if (result.unknownNames.isNotEmpty()) {
                 Text(
-                    "Noms non reconnus : associez-les à un médecin de votre liste, ou ignorez-les.",
+                    "Noms non reconnus : associez-les à un médecin de votre liste, ajoutez-les comme nouveaux médecins, ou ignorez-les. Votre choix est mémorisé pour les prochains imports.",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                 )
@@ -230,6 +258,7 @@ private fun PreviewCard(
                             onChange = { onMap(name, it) },
                             keepLabel = "Ignorer",
                             allowOff = false,
+                            newLabel = "Ajouter comme nouveau médecin",
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -242,8 +271,11 @@ private fun PreviewCard(
                         Target.Off -> "aucun renvoi"
                         Target.Clear -> "défaut"
                         is Target.Doc -> snap.doctor(t.id)?.name ?: "?"
-                        is Target.Unknown -> mapping[t.name]?.takeIf { it != KEY_KEEP }
-                            ?.let { id -> snap.doctor(id)?.name } ?: "« ${t.name} » ?"
+                        is Target.Unknown -> when (val v = mapping[t.name]) {
+                            null, KEY_KEEP -> "« ${t.name} » ?"
+                            KEY_NEW -> "+ nouveau : ${DoctorList.prettyName(t.name)}"
+                            else -> snap.doctor(v)?.name ?: "« ${t.name} » ?"
+                        }
                     }
                     "${item.time.shortHour()} $who"
                 }

@@ -2,6 +2,7 @@ package fr.astreinte.relais.sys
 
 import android.content.Context
 import android.util.Log
+import fr.astreinte.relais.core.ChangeNotice
 import fr.astreinte.relais.core.Codes
 import fr.astreinte.relais.core.LogEntry
 import fr.astreinte.relais.core.Planner
@@ -87,17 +88,20 @@ object Relay {
             finishNoSend()
             return
         }
-        send(app, command, label, trigger, onDone)
+        send(app, command, label, trigger, ChangeNotice.key(current.doctorId), st.lastTarget, onDone)
     }
 
     /** Envoi direct d'un code arbitraire (boutons de test). Passe par le même verrou et le même journal. */
     fun sendNow(context: Context, command: String, label: String, onDone: () -> Unit = {}) {
         val app = context.applicationContext
         Store.init(app)
-        send(app, command, label, Trigger.MANUAL, onDone)
+        send(app, command, label, Trigger.MANUAL, ChangeNotice.UNKNOWN, ChangeNotice.UNKNOWN, onDone)
     }
 
-    private fun send(app: Context, command: String, label: String, trigger: Trigger, onDone: () -> Unit) {
+    private fun send(
+        app: Context, command: String, label: String, trigger: Trigger,
+        target: String, previousTarget: String, onDone: () -> Unit,
+    ) {
         if (busy) {
             // Une session USSD est déjà en cours : on réévaluera juste après
             rerunWanted = true
@@ -122,7 +126,9 @@ object Relay {
                 is Ussd.Result.Ok -> result.text.ifBlank { "Code envoyé (réponse vide)" }
                 is Ussd.Result.Fail -> result.reason
             }
-            onResult(app, command, label, trigger, ok, message)
+            onResult(app, command, label, trigger, ok, message, target)
+            // Une MODIFICATION qui change l'astreinte en cours prévient le nouveau et l'ancien médecin
+            if (ok && trigger == Trigger.EDIT) Messenger.notifyChange(app, previousTarget, target)
             // L'état du renvoi vient de changer : des messages "bascule faite" peuvent maintenant partir
             Messenger.dispatchDue(app)
             busy = false
@@ -135,7 +141,7 @@ object Relay {
     }
 
     private fun onResult(
-        app: Context, command: String, label: String, trigger: Trigger, ok: Boolean, message: String,
+        app: Context, command: String, label: String, trigger: Trigger, ok: Boolean, message: String, target: String,
     ) {
         val previousAttempts = Store.snapshot.value.state.attempts
         val attempts = when {
@@ -143,7 +149,7 @@ object Relay {
             trigger.isRetry -> previousAttempts + 1
             else -> 1
         }
-        record(app, trigger, command, ok, message, attempts)
+        record(app, trigger, command, ok, message, attempts, target)
 
         val what = if (command == Codes.DEACTIVATE) "Renvoi désactivé" else "Renvoi vers $label"
         when {
@@ -171,11 +177,16 @@ object Relay {
 
     private fun record(
         app: Context, trigger: Trigger, command: String, ok: Boolean, message: String, attempts: Int,
+        target: String = ChangeNotice.UNKNOWN,
     ) {
         val now = System.currentTimeMillis()
         Store.update { s ->
             s.copy(
-                state = s.state.copy(lastCommand = command, lastOk = ok, lastAt = now, lastMessage = message, attempts = attempts),
+                state = s.state.copy(
+                    lastCommand = command, lastOk = ok, lastAt = now, lastMessage = message, attempts = attempts,
+                    // la cible mémorisée n'avance que si le renvoi est réellement en place
+                    lastTarget = if (ok && target != ChangeNotice.UNKNOWN) target else s.state.lastTarget,
+                ),
                 log = (listOf(LogEntry(now, trigger.label, command, ok, message)) + s.log).take(100),
             )
         }

@@ -178,7 +178,7 @@ object SmsCommands {
     /**
      * Texte de réponse : pour chaque jour, qui reçoit les appels à chaque créneau
      * (valeur réellement en vigueur à l'heure du créneau, défauts et héritage compris).
-     * Ex. « lun 09/11: 9h STD 12h Bruno 14h STD 17h STD 18h Bruno ».
+     * Ex. « lun 09/11: 9h STD 12h Alice 14h STD 17h STD 18h Alice ».
      */
     fun planText(snap: Snapshot, dates: List<LocalDate>, zone: java.time.ZoneId): String {
         if (dates.isEmpty()) return "Aucun jour."

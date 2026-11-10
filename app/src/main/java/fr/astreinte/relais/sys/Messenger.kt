@@ -1,6 +1,7 @@
 package fr.astreinte.relais.sys
 
 import android.content.Context
+import fr.astreinte.relais.core.ChangeNotice
 import fr.astreinte.relais.core.LogEntry
 import fr.astreinte.relais.core.Messages
 import fr.astreinte.relais.data.Store
@@ -33,5 +34,24 @@ object Messenger {
                 log = (logs.reversed() + s.log).take(100),
             )
         }
+    }
+
+    /** Prévient les médecins concernés quand une modification change l'astreinte en cours. */
+    fun notifyChange(app: Context, previous: String, new: String) {
+        Store.init(app)
+        val zone = ZoneId.systemDefault()
+        val hhmm = java.time.LocalTime.now(zone).let { "%02d:%02d".format(it.hour, it.minute) }
+        val msgs = ChangeNotice.messages(Store.snapshot.value, previous, new, hhmm)
+        if (msgs.isEmpty()) return
+        val logs = msgs.map { m ->
+            val sent = m.phone != null && SmsOut.send(app, m.phone, m.text)
+            val message = when {
+                sent -> m.text
+                m.phone == null -> "Non envoyé : numéro de ${m.doctor.name} invalide"
+                else -> "Non envoyé : permission d'envoi de SMS refusée ?"
+            }
+            LogEntry(System.currentTimeMillis(), "Changement d'astreinte", m.doctor.name, sent, message)
+        }
+        Store.update { s -> s.copy(log = (logs.reversed() + s.log).take(100)) }
     }
 }

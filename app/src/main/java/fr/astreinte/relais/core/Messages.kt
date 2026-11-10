@@ -94,3 +94,30 @@ object Messages {
             .minOrNull()
     }
 }
+
+/** Un SMS à envoyer parce qu'une modification a changé l'astreinte EN COURS. */
+data class ChangeMessage(val doctor: Doctor, val phone: String?, val text: String, val becomesOnCall: Boolean)
+
+/**
+ * Quand une modification du planning (application, SMS, synchro, import) change la cible du renvoi
+ * en cours, le nouveau médecin est prévenu qu'il est d'astreinte et l'ancien qu'il ne l'est plus.
+ * Un changement programmé à l'heure d'un créneau n'en déclenche pas (les messages horaires s'en chargent).
+ */
+object ChangeNotice {
+    const val UNKNOWN = ""
+    const val OFF = "~off"
+
+    fun key(doctorId: String?): String = doctorId ?: OFF
+
+    fun messages(snap: Snapshot, previous: String, new: String, hhmm: String): List<ChangeMessage> {
+        val st = snap.settings
+        if (!st.isRelay || !st.enabled || !st.msgEnabled || !st.changeNotify) return emptyList()
+        if (previous == UNKNOWN || previous == new) return emptyList()
+        fun doctor(t: String): Doctor? = if (t == UNKNOWN || t == OFF || t == STANDARD_ID) null else snap.doctor(t)
+        fun render(template: String, d: Doctor) = template.replace("{nom}", d.name).replace("{heure}", hhmm)
+        val out = ArrayList<ChangeMessage>()
+        doctor(new)?.let { out += ChangeMessage(it, Codes.normalizePhone(it.phone), render(st.changeTextNew, it), true) }
+        doctor(previous)?.let { out += ChangeMessage(it, Codes.normalizePhone(it.phone), render(st.changeTextOld, it), false) }
+        return out
+    }
+}

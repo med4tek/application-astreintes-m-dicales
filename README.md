@@ -43,8 +43,8 @@ Un SMS n'est pris en compte que si l'expéditeur est **autorisé** (médecins en
 
 Exemple de réponse :
 ```
-lun 09/11: 9h STD 12h Bruno 14h STD 17h STD 18h Bruno
-mar 10/11: 9h STD 12h Alice 14h STD 17h STD 18h Alice
+lun 09/11: 9h STD 12h Alice 14h STD 17h STD 18h Alice
+mar 10/11: 9h STD 12h Bruno 14h STD 17h STD 18h Bruno
 ```
 (`STD` = standard, `OFF` = aucun renvoi ; pour chaque créneau, la personne réellement en vigueur à cette heure.) Les consultations exigent « Répondre par SMS » dans les réglages.
 

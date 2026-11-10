@@ -491,6 +491,43 @@ fun MessagesSection(snap: Snapshot, resumeTick: Int, onEdit: ((Snapshot) -> Snap
         }
     }
 
+    // Changement de l'astreinte EN COURS (hors changements programmés aux heures des créneaux)
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Prévenir si l'astreinte en cours change", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Quand une modification (application, SMS, synchro, import) change le médecin d'astreinte EN COURS, " +
+                            "le nouveau médecin est prévenu qu'il est d'astreinte et l'ancien qu'il ne l'est plus.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = st.changeNotify,
+                    onCheckedChange = { v -> onEdit { it.copy(settings = it.settings.copy(changeNotify = v)) } },
+                )
+            }
+            if (st.changeNotify) {
+                OutlinedTextField(
+                    value = st.changeTextNew,
+                    onValueChange = { v -> onEdit { it.copy(settings = it.settings.copy(changeTextNew = v)) } },
+                    label = { Text("Message au nouveau médecin") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = st.changeTextOld,
+                    onValueChange = { v -> onEdit { it.copy(settings = it.settings.copy(changeTextOld = v)) } },
+                    label = { Text("Message à l'ancien médecin") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Variables : {nom} {heure}. Un changement programmé à l'heure d'un créneau ne déclenche pas ce message.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+
     if (creating || editing != null) {
         val rule = editing ?: MessageRule(
             UUID.randomUUID().toString(), true,

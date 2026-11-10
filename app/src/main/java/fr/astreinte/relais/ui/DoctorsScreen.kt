@@ -23,6 +23,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import fr.astreinte.relais.core.Codes
 import fr.astreinte.relais.core.Doctor
+import fr.astreinte.relais.core.DoctorList
 import fr.astreinte.relais.core.Snapshot
 import java.time.Instant
 import java.time.ZoneId
@@ -52,6 +54,7 @@ fun DoctorsScreen(
 ) {
     var editing by remember { mutableStateOf<Doctor?>(null) }
     var creating by remember { mutableStateOf(false) }
+    var bulk by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<Doctor?>(null) }
     val now = Instant.now()
     val zone = ZoneId.systemDefault()
@@ -67,6 +70,13 @@ fun DoctorsScreen(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (!readOnly) {
+                item(key = "bulk") {
+                    OutlinedButton(onClick = { bulk = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Ajouter plusieurs médecins d'un coup")
+                    }
+                }
+            }
             items(snap.doctors.sortedBy { it.name.lowercase() }, key = { it.id }) { d ->
                 val valid = Codes.normalizePhone(d.phone) != null
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
@@ -101,6 +111,16 @@ fun DoctorsScreen(
         }
     }
 
+    if (bulk) {
+        BulkDoctorDialog(
+            existing = snap.doctors,
+            onDismiss = { bulk = false },
+            onApply = { entries ->
+                onEdit { s -> s.copy(doctors = DoctorList.merge(s.doctors, entries) { UUID.randomUUID().toString() }.doctors) }
+                bulk = false
+            },
+        )
+    }
     if (creating) {
         DoctorDialog(
             initial = null,
@@ -191,6 +211,43 @@ private fun DoctorDialog(initial: Doctor?, onDismiss: () -> Unit, onSave: (Strin
         confirmButton = {
             Button(enabled = canSave, onClick = { onSave(name.trim(), phone.trim()) }) { Text("Enregistrer") }
         },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
+@Composable
+private fun BulkDoctorDialog(existing: List<Doctor>, onDismiss: () -> Unit, onApply: (List<DoctorList.Entry>) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    val entries = DoctorList.parse(text)
+    val preview = DoctorList.merge(existing, entries) { "x" }
+    val noPhone = entries.count { Codes.normalizePhone(it.phone) == null }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ajouter plusieurs médecins") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Une ligne par médecin : nom ; numéro. Le numéro est facultatif (à compléter ensuite). " +
+                        "Un médecin déjà présent n'est pas dupliqué : son numéro n'est complété que s'il lui manque.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("Alice Durand ; 06 12 34 56 78\nBruno Martin ; 06 98 76 54 32") },
+                    minLines = 6,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (entries.isNotEmpty()) {
+                    Text(
+                        "${preview.added} à ajouter · ${preview.updated} numéro(s) complété(s) · ${preview.unchanged} déjà présent(s)" +
+                            if (noPhone > 0) " · $noPhone sans numéro valide" else "",
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        },
+        confirmButton = { Button(enabled = entries.isNotEmpty(), onClick = { onApply(entries) }) { Text("Ajouter") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
     )
 }

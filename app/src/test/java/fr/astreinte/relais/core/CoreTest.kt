@@ -436,7 +436,7 @@ class SmsCommandsTest {
 
     @Test fun `texte de reponse du planning`() {
         val snap = Snapshot(
-            doctors = listOf(STANDARD_DOCTOR, Doctor("m", "Dr Bruno", "1"), Doctor("s", "Dr Claire", "2")),
+            doctors = listOf(STANDARD_DOCTOR, Doctor("m", "Dr Alice", "1"), Doctor("s", "Dr Zoé", "2")),
             shifts = listOf(
                 Shift("1", d("2026-11-09"), t("12:00"), "m"),
                 Shift("2", d("2026-11-09"), t("18:00"), "m"),
@@ -447,8 +447,8 @@ class SmsCommandsTest {
         )
         val text = SmsCommands.planText(snap, listOf(d("2026-11-09"), d("2026-11-10"), d("2026-11-11")), PARIS)
         assertEquals(
-            "lun 09/11: 9h STD 12h Bruno 14h STD 17h STD 18h Bruno\n" +
-                "mar 10/11: 9h STD 12h OFF 14h STD 17h STD 18h Claire\n" +
+            "lun 09/11: 9h STD 12h Alice 14h STD 17h STD 18h Alice\n" +
+                "mar 10/11: 9h STD 12h OFF 14h STD 17h STD 18h Zoé\n" +
                 // le 11/11 : rien de saisi, l'astreinte du 10 au soir court jusqu'à 9h puis standard
                 "mer 11/11: 9h STD 12h STD 14h STD 17h STD 18h STD",
             text
