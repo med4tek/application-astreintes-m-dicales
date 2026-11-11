@@ -65,6 +65,11 @@ const val DEFAULT_CHANGE_NEW =
 const val DEFAULT_CHANGE_OLD =
     "Bonjour {nom}, tu n'es plus d'astreinte pour l'instant (modification du planning a {heure}). Les appels ne te sont plus renvoyes."
 
+const val DEFAULT_CHANGE_NEXT =
+    "Bonjour {nom}, modification du planning a {heure} : tu es d'astreinte du {debut} au {fin}."
+const val DEFAULT_CHANGE_LOST =
+    "Bonjour {nom}, modification du planning a {heure} : tu n'es plus d'astreinte du {debut} au {fin}."
+
 /** Ancien texte par défaut (sans la fin de l'astreinte) : remplacé par le nouveau s'il n'a pas été personnalisé. */
 const val LEGACY_CHANGE_NEW =
     "Bonjour {nom}, l'astreinte en cours vient de t'etre confiee (modification du planning a {heure}). La bascule vers ton numero est faite."
@@ -104,6 +109,9 @@ data class Settings(
     val changeNotify: Boolean = true,
     val changeTextNew: String = DEFAULT_CHANGE_NEW,
     val changeTextOld: String = DEFAULT_CHANGE_OLD,
+    /** Astreinte À VENIR reprise à un autre médecin / retirée à un médecin (variables {nom} {heure} {debut} {fin}). */
+    val changeTextNext: String = DEFAULT_CHANGE_NEXT,
+    val changeTextLost: String = DEFAULT_CHANGE_LOST,
     /** Nom de l'utilisateur de ce téléphone, inscrit dans l'historique des modifications du planning. */
     val userName: String = "",
     /** Précisions sur la structure du planning à lire (importées avec la consigne pour l'IA), mémorisées. */
@@ -173,6 +181,8 @@ data class Snapshot(
     val aliases: Map<String, String> = emptyMap(),
     /** Qui a modifié le planning, quand, par quel canal (les plus récentes d'abord). */
     val history: List<HistoryEntry> = emptyList(),
+    /** Messages de modification d'astreintes à venir, calculés à la modification et envoyés par le relais. */
+    val notices: List<PendingNotice> = emptyList(),
 ) {
     fun doctor(id: String?): Doctor? = id?.let { wanted -> doctors.firstOrNull { it.id == wanted } }
 }

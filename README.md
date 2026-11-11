@@ -126,7 +126,8 @@ Consultable et partageable dans **Réglages → Historique des modifications du 
 - La **fin** est le prochain changement de personne (le standard qui reprend le lundi 9h, un autre médecin…).
 - Le message part au **début** de la période, **une fois la bascule vers ce médecin réellement faite**. Jamais pour le standard, jamais s'il n'y a personne d'astreinte, jamais deux fois, jamais plus de 90 minutes après le début.
 - **Si l'astreinte en cours change** (modification dans l'application, par SMS, synchro, import) : le **nouveau** médecin est prévenu, avec la fin de son astreinte, et l'**ancien** est prévenu qu'il ne l'est plus. Le message de début n'est alors pas renvoyé en double.
-- Textes modifiables : `{nom}` `{debut}` `{fin}` (début d'astreinte), `{nom}` `{heure}` `{fin}` (changement en cours).
+- **Astreinte à venir reprise à un autre** (moins de 7 jours, par exemple samedi midi vous donnez votre dimanche à un collègue) : le **collègue** reçoit « modification du planning : tu es d'astreinte du dim 15/11 a 9h au lun 16/11 a 9h » (et ne reçoit pas le message de début en double), et **vous** recevez « tu n'es plus d'astreinte du dim 15/11 a 9h au lun 16/11 a 9h ». Remplir un planning vide, ré-importer un planning identique ou changer une astreinte lointaine ne prévient personne.
+- Textes modifiables : `{nom}` `{debut}` `{fin}` (début d'astreinte), `{nom}` `{heure}` `{fin}` (changement en cours), `{nom}` `{heure}` `{debut}` `{fin}` (reprise ou perte d'une astreinte à venir).
 - Nécessite la bascule automatique active et la permission d'envoi de SMS. Le journal indique chaque message (ou la raison de son non-envoi).
 - Évitez accents et symboles spéciaux : un SMS en caractères spéciaux est découpé en messages plus courts.
 

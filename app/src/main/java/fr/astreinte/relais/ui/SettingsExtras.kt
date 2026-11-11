@@ -519,6 +519,25 @@ fun MessagesSection(snap: Snapshot, resumeTick: Int, onEdit: ((Snapshot) -> Snap
                     "Variables : {nom} {heure} {fin} (fin de l'astreinte du nouveau médecin). Un changement programmé ne déclenche pas ce message : il est déjà annoncé par le message de début d'astreinte.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Text("Astreinte à venir (moins de 7 jours) reprise à un autre ou retirée", fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = st.changeTextNext,
+                    onValueChange = { v -> onEdit { it.copy(settings = it.settings.copy(changeTextNext = v)) } },
+                    label = { Text("Message au médecin qui reprend l'astreinte") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = st.changeTextLost,
+                    onValueChange = { v -> onEdit { it.copy(settings = it.settings.copy(changeTextLost = v)) } },
+                    label = { Text("Message au médecin qui la perd") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Variables : {nom} {heure} {debut} {fin}. Exemple : samedi à 12h vous donnez votre dimanche à un collègue : il reçoit « tu es d'astreinte du dim… au lun… », vous recevez « tu n'es plus d'astreinte du dim… au lun… ». Remplir un planning vide ne prévient personne.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

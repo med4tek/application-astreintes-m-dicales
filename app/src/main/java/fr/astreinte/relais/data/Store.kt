@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import fr.astreinte.relais.core.Author
 import fr.astreinte.relais.core.History
+import fr.astreinte.relais.core.PeriodNotices
 import fr.astreinte.relais.core.Snapshot
 import fr.astreinte.relais.core.SnapshotJson
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +47,11 @@ object Store {
         var next = block(prev)
         if (next.shifts !== prev.shifts) {
             next = History.record(prev, next, by ?: Author(Author.VIA_APP), System.currentTimeMillis())
+            // Astreintes à venir reprises à un autre ou retirées : les médecins concernés seront prévenus par le relais
+            val zone = java.time.ZoneId.systemDefault()
+            val hhmm = java.time.LocalTime.now(zone).let { "%02d:%02d".format(it.hour, it.minute) }
+            val notices = PeriodNotices.compute(prev, next, java.time.Instant.now(), zone, hhmm)
+            if (notices.isNotEmpty()) next = next.copy(notices = (next.notices + notices).takeLast(40))
         }
         _snapshot.value = next
         save(next)

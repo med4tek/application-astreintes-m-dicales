@@ -12,6 +12,7 @@ import java.time.ZoneId
 object Messenger {
     fun dispatchDue(app: Context) {
         Store.init(app)
+        dispatchNotices(app)
         val now = Instant.now()
         val due = Messages.due(Store.snapshot.value, now, ZoneId.systemDefault())
         if (due.isEmpty()) return
@@ -33,6 +34,31 @@ object Messenger {
                 sentMessages = (s.sentMessages + keys).takeLast(60),
                 log = (logs.reversed() + s.log).take(100),
             )
+        }
+    }
+
+    /** Envoie les messages de modification d'astreintes à venir (reprise / perte) calculés au moment de la modification. */
+    private fun dispatchNotices(app: Context) {
+        val snap = Store.snapshot.value
+        if (snap.notices.isEmpty()) return
+        // la file est vidée AVANT l'envoi : jamais deux fois, même si l'envoi échoue (c'est consigné au journal)
+        Store.update { it.copy(notices = emptyList()) }
+        val logs = ArrayList<LogEntry>()
+        val keys = ArrayList<String>()
+        for (n in snap.notices) {
+            val d = snap.doctor(n.doctorId) ?: continue
+            val phone = fr.astreinte.relais.core.Codes.normalizePhone(d.phone)
+            val sent = phone != null && SmsOut.send(app, phone, n.text)
+            if (n.announcedKey.isNotEmpty()) keys += n.announcedKey
+            val message = when {
+                sent -> n.text
+                phone == null -> "Non envoyé : numéro de ${d.name} invalide"
+                else -> "Non envoyé : permission d'envoi de SMS refusée ?"
+            }
+            logs += LogEntry(System.currentTimeMillis(), "Modification d'astreinte", d.name, sent, message)
+        }
+        Store.update { s ->
+            s.copy(sentMessages = (s.sentMessages + keys).takeLast(60), log = (logs.reversed() + s.log).take(100))
         }
     }
 

@@ -385,3 +385,79 @@ class StateJsonTest {
         assertTrue(!Snapshot().settings.isRelay && !Snapshot().settings.isViewer)
     }
 }
+
+class PeriodNoticesTest {
+    private val a = Doctor("a", "Dr Alice", "0611111111")
+    private val b = Doctor("b", "Dr Bruno", "0622222222")
+    private val c = Doctor("c", "Dr Claire", "0633333333")
+    private val settings = Settings(mode = Mode.RELAY, enabled = true, msgEnabled = true)
+    private fun snap(vararg shifts: Shift) = Snapshot(doctors = listOf(STANDARD_DOCTOR, a, b, c), shifts = shifts.toList(), settings = settings)
+    private fun sh(id: String, d: String, h: String, who: String?) = Shift(id, day(d), hour(h), who)
+    private val sat12 = inst("2026-11-14", "12:00")
+
+    // samedi 14 et dimanche 15 : Alice toute la période (sam 9h -> lun 9h, où le standard reprend)
+    private val weekend = snap(sh("1", "2026-11-14", "09:00", "a"), sh("2", "2026-11-15", "09:00", "a"))
+
+    @Test fun `samedi midi je refile mon dimanche a un collegue - il est prevenu et moi aussi`() {
+        val after = snap(sh("1", "2026-11-14", "09:00", "a"), sh("2", "2026-11-15", "09:00", "b"))
+        val n = PeriodNotices.compute(weekend, after, sat12, PARIS2, "12:00")
+        assertEquals(setOf("a", "b"), n.map { it.doctorId }.toSet())
+        assertEquals("Bonjour Dr Bruno, modification du planning a 12:00 : tu es d'astreinte du dim 15/11 a 9h au lun 16/11 a 9h.", n.single { it.doctorId == "b" }.text)
+        assertEquals("Bonjour Dr Alice, modification du planning a 12:00 : tu n'es plus d'astreinte du dim 15/11 a 9h au lun 16/11 a 9h.", n.single { it.doctorId == "a" }.text)
+        // le collegue a deja ete annonce : le message de debut d'astreinte ne partira pas en double
+        val key = n.single { it.doctorId == "b" }.announcedKey
+        val s = after.copy(
+            sentMessages = listOf(key),
+            state = ApplyState(lastCommand = Codes.forDoctor(b), lastOk = true),
+        )
+        assertTrue(Messages.due(s, inst("2026-11-15", "09:00:30"), PARIS2).isEmpty())
+        // sans cela il aurait ete prevenu une seconde fois
+        assertEquals(1, Messages.due(s.copy(sentMessages = emptyList()), inst("2026-11-15", "09:00:30"), PARIS2).size)
+    }
+
+    @Test fun `rien ne part si le planning ne change pas ou si on remplit un planning vide`() {
+        assertTrue(PeriodNotices.compute(weekend, weekend, sat12, PARIS2, "12:00").isEmpty())
+        // dimanche 22 : personne n'avait cette astreinte, on la confie a Bruno : pas d'avertissement (message de debut d'astreinte)
+        val filled = snap(sh("1", "2026-11-14", "09:00", "a"), sh("2", "2026-11-15", "09:00", "a"), sh("3", "2026-11-22", "09:00", "b"))
+        assertTrue(PeriodNotices.compute(weekend, filled, sat12, PARIS2, "12:00").isEmpty())
+    }
+
+    @Test fun `un changement lointain ne previent personne`() {
+        // au-dela de 7 jours : le medecin recevra le message de debut d'astreinte le moment venu
+        val far = snap(sh("1", "2026-11-14", "09:00", "a"), sh("2", "2026-11-15", "09:00", "a"), sh("3", "2026-11-28", "09:00", "a"))
+        val changed = snap(sh("1", "2026-11-14", "09:00", "a"), sh("2", "2026-11-15", "09:00", "a"), sh("3", "2026-11-28", "09:00", "b"))
+        assertTrue(PeriodNotices.compute(far, changed, sat12, PARIS2, "12:00").isEmpty())
+    }
+
+    @Test fun `un medecin retire sans remplacant est prevenu`() {
+        val after = snap(sh("1", "2026-11-14", "09:00", "a"), sh("2", "2026-11-15", "09:00", null))
+        val n = PeriodNotices.compute(weekend, after, sat12, PARIS2, "12:00")
+        assertEquals(listOf("a"), n.map { it.doctorId })
+        assertTrue(n[0].text.contains("tu n'es plus d'astreinte du dim 15/11 a 9h"))
+    }
+
+    @Test fun `le changement de l'astreinte en cours reste le travail de ChangeNotice`() {
+        // samedi 12h : l'astreinte EN COURS passe d'Alice a Bruno -> pas de message ici (il part apres la bascule)
+        val after = snap(sh("1", "2026-11-14", "09:00", "b"), sh("2", "2026-11-15", "09:00", "a"))
+        val n = PeriodNotices.compute(weekend, after, sat12, PARIS2, "12:00")
+        // Alice perd le samedi (en cours : ignore) ; Bruno reprend une periode deja commencee (ignore) ; Alice garde le dimanche
+        assertTrue(n.none { it.doctorId == "b" })
+        assertTrue(n.none { it.doctorId == "a" })
+    }
+
+    @Test fun `rien si la fonction est coupee ou si ce n'est pas un relais`() {
+        val after = snap(sh("1", "2026-11-14", "09:00", "a"), sh("2", "2026-11-15", "09:00", "b"))
+        fun s(f: (Settings) -> Settings) = after.copy(settings = f(after.settings))
+        assertTrue(PeriodNotices.compute(weekend, s { it.copy(changeNotify = false) }, sat12, PARIS2, "12:00").isEmpty())
+        assertTrue(PeriodNotices.compute(weekend, s { it.copy(msgEnabled = false) }, sat12, PARIS2, "12:00").isEmpty())
+        assertTrue(PeriodNotices.compute(weekend, s { it.copy(mode = Mode.VIEWER) }, sat12, PARIS2, "12:00").isEmpty())
+    }
+
+    @Test fun `les files de messages survivent a la sauvegarde`() {
+        val s = weekend.copy(
+            notices = listOf(PendingNotice("b", "Bonjour", "P|2026-11-15|09:00|b")),
+            settings = settings.copy(changeTextNext = "N {nom}", changeTextLost = "L {nom}"),
+        )
+        assertEquals(s, SnapshotJson.fromJson(SnapshotJson.toJson(s)))
+    }
+}

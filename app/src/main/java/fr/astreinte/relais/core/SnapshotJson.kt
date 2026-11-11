@@ -33,6 +33,9 @@ object SnapshotJson {
         put("aliases", JSONObject().apply { s.aliases.forEach { (k, v) -> put(k, v) } })
         put("sync", syncToJson(s.sync))
         put("sentMessages", JSONArray(s.sentMessages))
+        put("notices", JSONArray().apply {
+            s.notices.forEach { put(JSONObject().put("doctorId", it.doctorId).put("text", it.text).put("key", it.announcedKey)) }
+        })
         put("history", JSONArray().apply {
             s.history.forEach {
                 put(
@@ -103,6 +106,9 @@ object SnapshotJson {
                     lines = o.optJSONArray("lines")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
                 )
             },
+            notices = root.optJSONArray("notices").toList { o ->
+                PendingNotice(o.getString("doctorId"), o.getString("text"), o.optString("key", ""))
+            },
             sentMessages = root.optJSONArray("sentMessages")?.let { a -> (0 until a.length()).map { a.getString(it) } }
                 ?: emptyList(),
         )
@@ -160,6 +166,8 @@ object SnapshotJson {
         .put("userName", st.userName)
         .put("importNotes", st.importNotes)
         .put("periodText", st.periodText)
+        .put("changeTextNext", st.changeTextNext)
+        .put("changeTextLost", st.changeTextLost)
 
     private fun settingsFromJson(o: JSONObject) = Settings(
         enabled = o.optBoolean("enabled", false),
@@ -188,6 +196,8 @@ object SnapshotJson {
         userName = o.optString("userName", ""),
         importNotes = o.optString("importNotes", ""),
         periodText = o.optString("periodText", DEFAULT_PERIOD_TEXT).ifBlank { DEFAULT_PERIOD_TEXT },
+        changeTextNext = o.optString("changeTextNext", DEFAULT_CHANGE_NEXT),
+        changeTextLost = o.optString("changeTextLost", DEFAULT_CHANGE_LOST),
     )
 
     private fun syncToJson(sy: SyncState) = JSONObject()
