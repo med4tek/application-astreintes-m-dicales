@@ -54,8 +54,6 @@ import fr.astreinte.relais.core.SmsParse
 import fr.astreinte.relais.core.SyncCodec
 import fr.astreinte.relais.core.Mode
 import fr.astreinte.relais.core.Doctor
-import fr.astreinte.relais.core.MessageRule
-import fr.astreinte.relais.core.DEFAULT_MESSAGE_RULES
 import fr.astreinte.relais.core.Messages
 import java.util.UUID
 import androidx.compose.material3.DropdownMenu
@@ -412,22 +410,21 @@ fun ModeChooserDialog(onPick: (String) -> Unit) {
 
 // ====================================================================== messages automatiques
 
-/** Messages SMS envoyés automatiquement aux médecins par le téléphone relais. */
+/** SMS envoyés par le téléphone relais aux médecins : un message par période d'astreinte, et un si l'astreinte en cours change. */
 @Composable
 fun MessagesSection(snap: Snapshot, resumeTick: Int, onEdit: ((Snapshot) -> Snapshot) -> Unit) {
     val context = LocalContext.current
     val st = snap.settings
     val sendOk = remember(resumeTick) { Perms.sendSms(context) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
-    var editing by remember { mutableStateOf<MessageRule?>(null) }
-    var creating by remember { mutableStateOf(false) }
 
     Text("Messages automatiques aux médecins", style = MaterialTheme.typography.titleMedium)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("Prévenir les médecins par SMS")
             Text(
-                "Ex. à 12h : « tu es d'astreinte, la bascule est faite ». Envoyé depuis ce téléphone au médecin concerné.",
+                "Un seul message par période d'astreinte, quand elle commence : « tu es d'astreinte du ven 13/11 a 18h au lun 16/11 a 9h ». " +
+                    "Un week-end confié à la même personne reste UN message, sans rappel à chaque créneau.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -452,47 +449,41 @@ fun MessagesSection(snap: Snapshot, resumeTick: Int, onEdit: ((Snapshot) -> Snap
         )
     }
 
-    st.msgRules.forEach { rule ->
-        Card(
-            modifier = Modifier.fillMaxWidth().clickable { editing = rule },
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        ) {
-            Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "${Messages.hourText(rule.at)} → médecin du créneau ${Messages.hourText(rule.slotTime)}" +
-                            (if (rule.offDays) " · week-ends et fériés" else " · jours ouvrés") +
-                            if (rule.confirmsSwitch) " (si bascule faite)" else "",
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        rule.text,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 2,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-                }
-                Switch(
-                    checked = rule.enabled,
-                    onCheckedChange = { v ->
-                        onEdit { s -> s.copy(settings = s.settings.copy(msgRules = s.settings.msgRules.map { if (it.id == rule.id) it.copy(enabled = v) else it })) }
-                    },
-                )
-            }
-        }
-    }
-    Row {
-        TextButton(onClick = { creating = true }) {
-            Icon(Icons.Filled.Add, contentDescription = null)
-            Spacer(Modifier.width(4.dp))
-            Text("Ajouter un message")
-        }
-        TextButton(onClick = { onEdit { it.copy(settings = it.settings.copy(msgRules = DEFAULT_MESSAGE_RULES)) } }) {
-            Text("Rétablir ceux d'origine")
+    // Début d'une période d'astreinte
+    val example = snap.doctors.firstOrNull { it.id != STANDARD_ID } ?: Doctor("x", "Dr Exemple", "0600000000")
+    val zone = java.time.ZoneId.systemDefault()
+    val start = java.time.ZonedDateTime.of(LocalDate.now().with(java.time.DayOfWeek.FRIDAY), LocalTime.of(18, 0), zone).toInstant()
+    val end = start.plus(java.time.Duration.ofHours(63))
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Début d'astreinte", fontWeight = FontWeight.Bold)
+            Text(
+                "Envoyé une fois la bascule vers le médecin faite, avec le début et la FIN de son astreinte (jusqu'au prochain changement de personne).",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = st.periodText,
+                onValueChange = { v -> onEdit { it.copy(settings = it.settings.copy(periodText = v)) } },
+                label = { Text("Texte du message") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Variables : {nom} {debut} {fin}. Évitez les accents et symboles spéciaux : un SMS avec caractères spéciaux est découpé en messages plus courts.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "Aperçu : ${Messages.render(st.periodText, example, start, end, zone)}",
+                style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "Jamais envoyé au standard, ni s'il n'y a personne d'astreinte, ni deux fois, ni plus de 90 minutes après le début.",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 
-    // Changement de l'astreinte EN COURS (hors changements programmés aux heures des créneaux)
+    // Changement de l'astreinte EN COURS (hors changements programmés)
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -500,7 +491,7 @@ fun MessagesSection(snap: Snapshot, resumeTick: Int, onEdit: ((Snapshot) -> Snap
                     Text("Prévenir si l'astreinte en cours change", fontWeight = FontWeight.Bold)
                     Text(
                         "Quand une modification (application, SMS, synchro, import) change le médecin d'astreinte EN COURS, " +
-                            "le nouveau médecin est prévenu qu'il est d'astreinte et l'ancien qu'il ne l'est plus.",
+                            "le nouveau médecin est prévenu (avec la fin de son astreinte) et l'ancien est prévenu qu'il ne l'est plus.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -514,7 +505,7 @@ fun MessagesSection(snap: Snapshot, resumeTick: Int, onEdit: ((Snapshot) -> Snap
                     value = st.changeTextNew,
                     onValueChange = { v -> onEdit { it.copy(settings = it.settings.copy(changeTextNew = v)) } },
                     label = { Text("Message au nouveau médecin") },
-                    minLines = 2,
+                    minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -524,119 +515,13 @@ fun MessagesSection(snap: Snapshot, resumeTick: Int, onEdit: ((Snapshot) -> Snap
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Variables : {nom} {heure}. Un changement programmé à l'heure d'un créneau ne déclenche pas ce message.", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Variables : {nom} {heure} {fin} (fin de l'astreinte du nouveau médecin). Un changement programmé ne déclenche pas ce message : il est déjà annoncé par le message de début d'astreinte.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }
-
-    if (creating || editing != null) {
-        val rule = editing ?: MessageRule(
-            UUID.randomUUID().toString(), true,
-            st.slots.minByOrNull { it.time }?.time ?: LocalTime.of(12, 0),
-            st.slots.minByOrNull { it.time }?.time ?: LocalTime.of(12, 0),
-            true, "Bonjour {nom}, tu es d'astreinte de {debut} a {fin}.",
-        )
-        val isNew = editing == null
-        MessageRuleDialog(
-            snap = snap,
-            initial = rule,
-            canDelete = !isNew,
-            onDismiss = { creating = false; editing = null },
-            onDelete = {
-                onEdit { s -> s.copy(settings = s.settings.copy(msgRules = s.settings.msgRules.filter { it.id != rule.id })) }
-                creating = false; editing = null
-            },
-            onSave = { saved ->
-                onEdit { s ->
-                    val rules = s.settings.msgRules
-                    s.copy(settings = s.settings.copy(msgRules = if (isNew) rules + saved else rules.map { if (it.id == saved.id) saved else it }))
-                }
-                creating = false; editing = null
-            },
-        )
-    }
-}
-
-@Composable
-private fun MessageRuleDialog(
-    snap: Snapshot,
-    initial: MessageRule,
-    canDelete: Boolean,
-    onDismiss: () -> Unit,
-    onDelete: () -> Unit,
-    onSave: (MessageRule) -> Unit,
-) {
-    var at by remember { mutableStateOf(initial.at) }
-    var slotTime by remember { mutableStateOf(initial.slotTime) }
-    var confirms by remember { mutableStateOf(initial.confirmsSwitch) }
-    var offDays by remember { mutableStateOf(initial.offDays) }
-    var text by remember { mutableStateOf(initial.text) }
-    var pickAt by remember { mutableStateOf(false) }
-    var slotMenu by remember { mutableStateOf(false) }
-    val slots = snap.settings.slots.sortedBy { it.time }
-    val example = snap.doctors.firstOrNull { it.id != STANDARD_ID } ?: Doctor("x", "Dr Exemple", "0600000000")
-    val preview = Messages.render(text, example, LocalDate.now(), slotTime, slots)
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (canDelete) "Modifier le message" else "Nouveau message") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                LabeledRow("Envoyé à") { OutlinedButton(onClick = { pickAt = true }) { Text(at.hhmm()) } }
-                LabeledRow("Pour") {
-                    Box(Modifier.weight(1f)) {
-                        OutlinedButton(onClick = { slotMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text("le médecin de ${Messages.hourText(slotTime)}")
-                        }
-                        DropdownMenu(expanded = slotMenu, onDismissRequest = { slotMenu = false }) {
-                            slots.forEach { sl ->
-                                DropdownMenuItem(
-                                    text = { Text("${Messages.hourText(sl.time)} · ${sl.label}") },
-                                    onClick = { slotTime = sl.time; slotMenu = false },
-                                )
-                            }
-                        }
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Seulement si la bascule vers lui est faite", Modifier.weight(1f))
-                    Switch(checked = confirms, onCheckedChange = { confirms = it })
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Week-ends et jours fériés (sinon : jours ouvrés)", Modifier.weight(1f))
-                    Switch(checked = offDays, onCheckedChange = { offDays = it })
-                }
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    label = { Text("Texte du message") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "Variables : {nom} {debut} {fin} {date}. Évitez les accents et symboles spéciaux : un SMS avec " +
-                        "caractères spéciaux est découpé en messages plus courts.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text("Aperçu : $preview", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                Text(
-                    "Le message n'est jamais envoyé au standard, ni s'il n'y a personne d'astreinte à ce créneau, ni plus de 90 minutes après l'heure prévue.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (canDelete) {
-                    TextButton(onClick = onDelete) { Text("Supprimer ce message", color = MaterialTheme.colorScheme.error) }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = text.isNotBlank(),
-                onClick = { onSave(initial.copy(at = at, slotTime = slotTime, confirmsSwitch = confirms, offDays = offDays, text = text.trim())) },
-            ) { Text("Enregistrer") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
-    )
-    if (pickAt) TimeDialog("Heure d'envoi", at, { pickAt = false }) { at = it; pickAt = false }
 }
 
 // ====================================================================== historique du planning

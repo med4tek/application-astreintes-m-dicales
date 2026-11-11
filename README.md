@@ -118,21 +118,15 @@ Consultable et partageable dans **Réglages → Historique des modifications du 
 
 ## Messages automatiques aux médecins (relais)
 
-**Réglages → Messages automatiques aux médecins** : le relais envoie des SMS aux médecins d'astreinte. Quatre messages sont proposés d'origine :
+**Réglages → Messages automatiques aux médecins** : le relais envoie des SMS aux médecins d'astreinte. **Un seul message par période d'astreinte**, qui dit **de quand à quand** :
 
-| Heure | Destinataire | Message |
-|---|---|---|
-| 12h | médecin de 12h | « Tu es d'astreinte ce midi (12h-14h). La bascule vers ton numéro est faite. » |
-| 17h | médecin de 17h | « Tu es d'astreinte cet après-midi (17h-18h). La bascule est faite. » |
-| 17h | médecin de **18h** | « Rappel : tu es d'astreinte ce soir à partir de 18h jusqu'à demain 9h. » |
-| 18h | médecin de 18h | « La bascule est faite : ton astreinte commence (18h-demain 9h). » |
-| 9h, **week-ends et fériés seulement** | médecin du jour | « Tu es d'astreinte toute la journée. La bascule vers ton numéro est faite. » |
+> Bonjour Dr Martin, tu es d'astreinte du ven 13/11 a 18h au lun 16/11 a 9h. La bascule vers ton numero est faite.
 
-Les quatre premiers ne partent que les jours ouvrés, le dernier que les week-ends et jours fériés (réglable message par message).
-
-- Les messages « bascule faite » ne partent que lorsque le renvoi vers ce médecin est **réellement en place**.
-- Chacun est activable, modifiable (texte, heure, créneau visé) ; variables `{nom}` `{debut}` `{fin}` `{date}`.
-- Jamais envoyé : au standard, s'il n'y a personne d'astreinte à ce créneau, deux fois, ou plus de 90 minutes après l'heure prévue. Un rappel annoncé à l'avance n'est plus envoyé une fois le créneau commencé.
+- Une **période** est une suite ininterrompue de créneaux confiés au même médecin. Un week-end confié à la même personne (vendredi 18h, samedi 9h, 14h…) reste **un seul message**, sans rappel à chaque créneau.
+- La **fin** est le prochain changement de personne (le standard qui reprend le lundi 9h, un autre médecin…).
+- Le message part au **début** de la période, **une fois la bascule vers ce médecin réellement faite**. Jamais pour le standard, jamais s'il n'y a personne d'astreinte, jamais deux fois, jamais plus de 90 minutes après le début.
+- **Si l'astreinte en cours change** (modification dans l'application, par SMS, synchro, import) : le **nouveau** médecin est prévenu, avec la fin de son astreinte, et l'**ancien** est prévenu qu'il ne l'est plus. Le message de début n'est alors pas renvoyé en double.
+- Textes modifiables : `{nom}` `{debut}` `{fin}` (début d'astreinte), `{nom}` `{heure}` `{fin}` (changement en cours).
 - Nécessite la bascule automatique active et la permission d'envoi de SMS. Le journal indique chaque message (ou la raison de son non-envoi).
 - Évitez accents et symboles spéciaux : un SMS en caractères spéciaux est découpé en messages plus courts.
 

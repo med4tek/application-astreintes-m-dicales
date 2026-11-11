@@ -159,20 +159,7 @@ object SnapshotJson {
         .put("changeTextOld", st.changeTextOld)
         .put("userName", st.userName)
         .put("importNotes", st.importNotes)
-        .put("msgRules", JSONArray().apply {
-            st.msgRules.forEach {
-                put(
-                    JSONObject()
-                        .put("id", it.id)
-                        .put("enabled", it.enabled)
-                        .put("at", it.at.toString())
-                        .put("slotTime", it.slotTime.toString())
-                        .put("confirmsSwitch", it.confirmsSwitch)
-                        .put("text", it.text)
-                        .put("offDays", it.offDays)
-                )
-            }
-        })
+        .put("periodText", st.periodText)
 
     private fun settingsFromJson(o: JSONObject) = Settings(
         enabled = o.optBoolean("enabled", false),
@@ -196,26 +183,11 @@ object SnapshotJson {
         relayNumber = o.optString("relayNumber", ""),
         msgEnabled = o.optBoolean("msgEnabled", false),
         changeNotify = o.optBoolean("changeNotify", true),
-        changeTextNew = o.optString("changeTextNew", DEFAULT_CHANGE_NEW),
+        changeTextNew = o.optString("changeTextNew", DEFAULT_CHANGE_NEW).let { if (it == LEGACY_CHANGE_NEW) DEFAULT_CHANGE_NEW else it },
         changeTextOld = o.optString("changeTextOld", DEFAULT_CHANGE_OLD),
         userName = o.optString("userName", ""),
         importNotes = o.optString("importNotes", ""),
-        msgRules = o.optJSONArray("msgRules")?.let { arr ->
-            val rules = arr.toList { r ->
-                MessageRule(
-                    id = r.getString("id"),
-                    enabled = r.optBoolean("enabled", true),
-                    at = LocalTime.parse(r.getString("at")),
-                    slotTime = LocalTime.parse(r.getString("slotTime")),
-                    confirmsSwitch = r.optBoolean("confirmsSwitch", false),
-                    text = r.optString("text", ""),
-                    offDays = r.optBoolean("offDays", false),
-                )
-            }
-            // Fichier d'avant les règles « week-ends et fériés » : on ajoute le message de début de journée
-            val before = rules.isNotEmpty() && (0 until arr.length()).none { arr.getJSONObject(it).has("offDays") }
-            if (before) rules + DEFAULT_MESSAGE_RULES.filter { it.offDays } else rules
-        } ?: DEFAULT_MESSAGE_RULES,
+        periodText = o.optString("periodText", DEFAULT_PERIOD_TEXT).ifBlank { DEFAULT_PERIOD_TEXT },
     )
 
     private fun syncToJson(sy: SyncState) = JSONObject()

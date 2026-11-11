@@ -260,50 +260,67 @@ class MessagesTest {
     private fun switchedTo(who: Doctor, snap: Snapshot = base) =
         snap.copy(state = ApplyState(lastCommand = Codes.forDoctor(who), lastOk = true))
 
-    private fun ids(s: Snapshot, d: String, t: String) = Messages.due(s, inst(d, t), PARIS2).map { it.rule.id to it.doctor.id }
+    private fun who(s: Snapshot, d: String, t: String) = Messages.due(s, inst(d, t), PARIS2).map { it.doctor.id }
 
-    @Test fun `a 12h le medecin du midi est prevenu une fois la bascule faite`() {
-        assertEquals(listOf("midi" to "m"), ids(switchedTo(doctors[1]), "2026-11-09", "12:00:30"))
-        // bascule pas encore faite (le renvoi pointe encore sur le standard) : on attend
-        assertEquals(emptyList<Pair<String, String>>(), ids(switchedTo(STANDARD_DOCTOR), "2026-11-09", "12:00:30"))
-        // bascule en échec : on n'affirme pas qu'elle est faite
+    @Test fun `un seul message au debut de l'astreinte avec le debut et la fin`() {
+        val m = Messages.due(switchedTo(doctors[1]), inst("2026-11-09", "12:00:30"), PARIS2).single()
+        assertEquals("Bonjour Dr Martin, tu es d'astreinte du lun 09/11 a 12h au lun 09/11 a 14h. La bascule vers ton numero est faite.", m.text)
+        assertEquals("0611111111", m.phone)
+        // celui du soir : la fin est le lendemain 9h (le standard reprend)
+        val soir = Messages.due(switchedTo(g), inst("2026-11-09", "18:00:05"), PARIS2).single()
+        assertEquals("Bonjour Dr Garde, tu es d'astreinte du lun 09/11 a 18h au mar 10/11 a 9h. La bascule vers ton numero est faite.", soir.text)
+    }
+
+    @Test fun `un week-end confie a la meme personne ne donne qu'un seul message`() {
+        // vendredi 18h -> lundi 9h : cases a 18h, 9h, 14h... toutes pour Dr Garde
+        val shifts = listOf(
+            Shift("a", day("2026-11-13"), hour("18:00"), "g"),
+            Shift("b", day("2026-11-14"), hour("09:00"), "g"), Shift("c", day("2026-11-14"), hour("14:00"), "g"),
+            Shift("d", day("2026-11-15"), hour("09:00"), "g"), Shift("e", day("2026-11-15"), hour("14:00"), "g"),
+        )
+        val s = switchedTo(g, base.copy(shifts = shifts))
+        val all = listOf("2026-11-13" to "18:00:10", "2026-11-14" to "09:00:10", "2026-11-14" to "12:00:10", "2026-11-14" to "14:00:10",
+            "2026-11-15" to "09:00:10", "2026-11-15" to "14:00:10", "2026-11-16" to "09:00:10")
+        // un seul message, a 18h le vendredi, qui annonce jusqu'au lundi 9h
+        val sent = all.flatMap { (d, t) -> Messages.due(s, inst(d, t), PARIS2).map { d to it.text } }
+        assertEquals(1, sent.size)
+        assertEquals("2026-11-13", sent[0].first)
+        assertTrue(sent[0].second.contains("du ven 13/11 a 18h au lun 16/11 a 9h"))
+    }
+
+    @Test fun `periodes - les creneaux consecutifs de la meme cible fusionnent`() {
+        val tl = Planner.timeline(
+            base.copy(shifts = listOf(Shift("1", day("2026-11-14"), hour("09:00"), "g"), Shift("2", day("2026-11-14"), hour("14:00"), "g"))),
+            inst("2026-11-14", "10:00"), PARIS2,
+        )
+        val p = Messages.periods(tl, PARIS2).first { it.doctorId == "g" }
+        assertEquals(inst("2026-11-14", "09:00"), p.start)
+        assertEquals(inst("2026-11-16", "09:00"), p.end)      // le standard reprend le lundi
+    }
+
+    @Test fun `la bascule doit etre faite avant le message`() {
+        assertEquals(emptyList<String>(), who(switchedTo(STANDARD_DOCTOR), "2026-11-09", "12:00:30"))
         val failed = base.copy(state = ApplyState(lastCommand = Codes.forDoctor(doctors[1]), lastOk = false))
-        assertEquals(emptyList<Pair<String, String>>(), ids(failed, "2026-11-09", "12:00:30"))
-    }
-
-    @Test fun `a 17h le medecin de l'apres-midi est prevenu et celui du soir rappele`() {
-        assertEquals(setOf("apm" to "s", "rappel" to "g"), ids(switchedTo(doctors[2]), "2026-11-09", "17:00:10").toSet())
-        // le rappel n'attend pas la bascule : il part même si elle n'est pas encore faite
-        assertEquals(listOf("rappel" to "g"), ids(switchedTo(STANDARD_DOCTOR), "2026-11-09", "17:00:10"))
-    }
-
-    @Test fun `a 18h l'astreinte commence`() {
-        assertEquals(listOf("soir" to "g"), ids(switchedTo(g), "2026-11-09", "18:00:05"))
-    }
-
-    @Test fun `un rappel annonce a l'avance est perime une fois le creneau commence`() {
-        // téléphone éteint à 17h, rallumé à 17h55 : le rappel part encore ; à 18h05 il n'a plus de sens
-        assertEquals(listOf("rappel" to "g"), ids(switchedTo(STANDARD_DOCTOR), "2026-11-09", "17:55:00"))
-        assertEquals(emptyList<Pair<String, String>>(), ids(switchedTo(STANDARD_DOCTOR), "2026-11-09", "18:05:00"))
+        assertEquals(emptyList<String>(), who(failed, "2026-11-09", "12:00:30"))
     }
 
     @Test fun `jamais deux fois le meme message`() {
-        val sent = switchedTo(doctors[1]).copy(sentMessages = listOf("2026-11-09|midi"))
-        assertEquals(emptyList<Pair<String, String>>(), ids(sent, "2026-11-09", "12:00:30"))
+        val first = Messages.due(switchedTo(doctors[1]), inst("2026-11-09", "12:00:30"), PARIS2).single()
+        val sent = switchedTo(doctors[1]).copy(sentMessages = listOf(first.key))
+        assertEquals(emptyList<String>(), who(sent, "2026-11-09", "12:00:30"))
     }
 
     @Test fun `un message trop en retard n'est plus envoye`() {
         val s = switchedTo(doctors[1])
         assertEquals(1, Messages.due(s, inst("2026-11-09", "13:29"), PARIS2).size)   // 89 min de retard
-        assertEquals(0, Messages.due(s, inst("2026-11-09", "13:31"), PARIS2).size)   // 91 min
+        assertEquals(0, Messages.due(s, inst("2026-11-09", "13:31"), PARIS2).size)   // 91 min (et la periode est finie a 14h)
         assertEquals(0, Messages.due(s, inst("2026-11-09", "11:59"), PARIS2).size)   // pas encore l'heure
     }
 
     @Test fun `personne n'est prevenu quand c'est le standard ou qu'il n'y a personne`() {
-        // le 10/11 : rien de saisi, le standard tient tout
-        assertEquals(emptyList<Pair<String, String>>(), ids(switchedTo(STANDARD_DOCTOR), "2026-11-10", "12:00:10"))
+        assertEquals(emptyList<String>(), who(switchedTo(STANDARD_DOCTOR), "2026-11-10", "09:00:10"))
         val off = base.copy(shifts = listOf(Shift("o", day("2026-11-09"), hour("12:00"), null)))
-        assertEquals(emptyList<Pair<String, String>>(), ids(off, "2026-11-09", "12:00:10"))
+        assertEquals(emptyList<String>(), who(off, "2026-11-09", "12:00:10"))
     }
 
     @Test fun `rien n'est envoye si la fonction est coupee ou si ce n'est pas un relais`() {
@@ -311,42 +328,33 @@ class MessagesTest {
         assertTrue(Messages.due(s.copy(settings = s.settings.copy(msgEnabled = false)), inst("2026-11-09", "12:00:30"), PARIS2).isEmpty())
         assertTrue(Messages.due(s.copy(settings = s.settings.copy(enabled = false)), inst("2026-11-09", "12:00:30"), PARIS2).isEmpty())
         assertTrue(Messages.due(s.copy(settings = s.settings.copy(mode = Mode.VIEWER)), inst("2026-11-09", "12:00:30"), PARIS2).isEmpty())
-        val rules = s.settings.msgRules.map { it.copy(enabled = false) }
-        assertTrue(Messages.due(s.copy(settings = s.settings.copy(msgRules = rules)), inst("2026-11-09", "12:00:30"), PARIS2).isEmpty())
     }
 
-    @Test fun `les textes sont personnalises`() {
-        val s = switchedTo(g)
-        val soir = Messages.due(s, inst("2026-11-09", "18:00:05"), PARIS2).single()
-        assertEquals("Bonjour Dr Garde, la bascule est faite : ton astreinte commence (18h-demain 9h).", soir.text)
-        assertEquals("0744444444", soir.phone)
-        val rappel = Messages.due(s, inst("2026-11-09", "17:00:05"), PARIS2).single { it.rule.id == "rappel" }
-        assertEquals("Rappel Dr Garde : tu es d'astreinte ce soir a partir de 18h jusqu'a demain 9h.", rappel.text)
-        assertEquals("lun 09/11", Messages.render("{date}", g, day("2026-11-09"), hour("12:00"), DEFAULT_SLOTS))
-    }
-
-    @Test fun `fin de creneau`() {
-        assertEquals("14h", Messages.endText(hour("12:00"), DEFAULT_SLOTS))
-        assertEquals("18h", Messages.endText(hour("17:00"), DEFAULT_SLOTS))
-        assertEquals("demain 9h", Messages.endText(hour("18:00"), DEFAULT_SLOTS))
-        assertEquals("", Messages.endText(hour("18:00"), emptyList()))
+    @Test fun `le texte est personnalisable`() {
+        val s = switchedTo(g).let { it.copy(settings = it.settings.copy(periodText = "{nom} : {debut} -> {fin}")) }
+        assertEquals("Dr Garde : lun 09/11 a 18h -> mar 10/11 a 9h", Messages.due(s, inst("2026-11-09", "18:00:05"), PARIS2).single().text)
         assertEquals("9h30", Messages.hourText(hour("09:30")))
     }
 
-    @Test fun `un numero invalide est signale`() {
+    @Test fun `un numero invalide empeche la bascule donc le message`() {
         val bad = base.copy(doctors = doctors.map { if (it.id == "g") it.copy(phone = "pas un numero") else it })
-        // le rappel (sans attente de bascule) est dû, mais le numéro est inutilisable : signalé par phone == null
-        val rappel = Messages.due(switchedTo(STANDARD_DOCTOR, bad), inst("2026-11-09", "17:00:05"), PARIS2).single { it.rule.id == "rappel" }
-        assertNull(rappel.phone)
-        // quant au message « bascule faite », il ne part pas : la bascule vers ce numéro est impossible
         assertTrue(Messages.due(switchedTo(g, bad), inst("2026-11-09", "18:00:05"), PARIS2).isEmpty())
     }
 
     @Test fun `prochain envoi pour programmer l'alarme`() {
         assertEquals(inst("2026-11-09", "12:00"), Messages.nextDue(base, inst("2026-11-09", "11:00"), PARIS2))
         assertEquals(inst("2026-11-09", "17:00"), Messages.nextDue(base, inst("2026-11-09", "12:30"), PARIS2))
-        assertEquals(inst("2026-11-10", "12:00"), Messages.nextDue(base, inst("2026-11-09", "18:30"), PARIS2))
+        assertNull(Messages.nextDue(base, inst("2026-11-09", "18:30"), PARIS2))        // plus de periode a venir
         assertNull(Messages.nextDue(base.copy(settings = base.settings.copy(msgEnabled = false)), inst("2026-11-09", "11:00"), PARIS2))
+    }
+
+    @Test fun `periode en cours et son message de modification portent la fin`() {
+        val cur = Messages.currentPeriod(base, inst("2026-11-09", "18:30"), PARIS2)!!
+        assertEquals("g", cur.doctorId)
+        assertEquals(inst("2026-11-10", "09:00"), cur.end)
+        assertEquals("mar 10/11 a 9h", Messages.whenText(cur.end!!, PARIS2))
+        val m = ChangeNotice.messages(base, "s", "g", "18:30", Messages.whenText(cur.end!!, PARIS2))
+        assertTrue(m[0].text.contains("jusqu'au mar 10/11 a 9h"))
     }
 }
 
@@ -357,8 +365,7 @@ class StateJsonTest {
             shifts = listOf(Shift("s1", day("2026-11-06"), hour("12:00"), "d1")),
             settings = Settings(
                 mode = Mode.VIEWER, relayNumber = "06 00 00 00 00", smsPin = "1234",
-                msgEnabled = true,
-                msgRules = listOf(MessageRule("r1", false, hour("11:30"), hour("12:00"), true, "Salut {nom}")),
+                msgEnabled = true, periodText = "Salut {nom} {debut} {fin}",
             ),
             baseline = listOf(Shift("b1", day("2026-11-06"), hour("18:00"), null)),
             sync = SyncState(
@@ -368,7 +375,7 @@ class StateJsonTest {
                     pushedShifts = listOf(Shift("p1", day("2026-11-07"), hour("17:00"), "d1")),
                 ),
             ),
-            sentMessages = listOf("2026-11-06|midi", "2026-11-06|soir"),
+            sentMessages = listOf("P|2026-11-06|12:00|d1", "P|2026-11-06|18:00|d1"),
         )
         assertEquals(snap, SnapshotJson.fromJson(SnapshotJson.toJson(snap)))
     }

@@ -330,21 +330,24 @@ class OffDaysTest {
         assertEquals(STANDARD_ID, Planner.currentShift(snap, monday, zone)?.doctorId)
     }
 
-    @Test fun `messages horaires seulement les jours ouvres, message de journee les jours chomes`() {
+    @Test fun `un week-end une seule personne ne recoit qu'un message du debut a la fin`() {
         val zone = java.time.ZoneId.of("Europe/Paris")
         val st = Settings(mode = Mode.RELAY, enabled = true, msgEnabled = true)
         val sat = d(2026, 11, 14)
+        val a = staff.first { it.id == "a" }
         val snap = Snapshot(
             doctors = staff,
             shifts = listOf(Shift("1", sat, java.time.LocalTime.of(9, 0), "a")),
             settings = st,
-            state = ApplyState(lastCommand = Codes.forDoctor(staff.first { it.id == "a" }), lastOk = true),
+            state = ApplyState(lastCommand = Codes.forDoctor(a), lastOk = true),
         )
         fun due(day: java.time.LocalDate, h: Int, min: Int = 5) =
             Messages.due(snap, java.time.ZonedDateTime.of(day, java.time.LocalTime.of(h, min), zone).toInstant(), zone)
-        assertEquals(listOf("jour"), due(sat, 9).map { it.rule.id })
-        // un samedi, rien a 12h ni 17h ni 18h
-        listOf(12, 17, 18).forEach { assertTrue(due(sat, it).isEmpty()) }
+        val m = due(sat, 9).single()
+        assertTrue(m.text.contains("du sam 14/11 a 9h au lun 16/11 a 9h"))
+        // rien ensuite : ni a 12h, 14h, 17h, 18h, ni le dimanche
+        listOf(12, 14, 17, 18).forEach { assertTrue(due(sat, it).isEmpty()) }
+        assertTrue(due(d(2026, 11, 15), 9).isEmpty())
     }
 
     @Test fun `l'import ramene la personne du week-end au premier creneau`() {
@@ -370,14 +373,16 @@ class OffDaysTest {
         assertTrue(p.contains("mer. 11 (férié)") && p.contains("sam. 14") && p.contains("\"09:00\""))
     }
 
-    @Test fun `un ancien fichier recoit le message de journee, sans le dupliquer ensuite`() {
-        val old = """{"settings":{"mode":"RELAY","msgRules":[{"id":"midi","enabled":true,"at":"12:00","slotTime":"12:00","confirmsSwitch":true,"text":"x"}]}}"""
+    @Test fun `un ancien fichier reprend les nouveaux textes par defaut`() {
+        val old = """{"settings":{"mode":"RELAY","msgEnabled":true,"changeTextNew":"$LEGACY_CHANGE_NEW","msgRules":[{"id":"midi","enabled":true,"at":"12:00","slotTime":"12:00","confirmsSwitch":true,"text":"x"}]}}"""
         val s = SnapshotJson.fromJson(old)
-        assertEquals(listOf("midi", "jour"), s.settings.msgRules.map { it.id })
-        val again = SnapshotJson.fromJson(SnapshotJson.toJson(s))
-        assertEquals(listOf("midi", "jour"), again.settings.msgRules.map { it.id })
-        val deleted = SnapshotJson.fromJson(SnapshotJson.toJson(again.copy(settings = again.settings.copy(msgRules = again.settings.msgRules.filter { it.id != "jour" }))))
-        assertEquals(listOf("midi"), deleted.settings.msgRules.map { it.id })
+        assertEquals(DEFAULT_PERIOD_TEXT, s.settings.periodText)
+        assertEquals(DEFAULT_CHANGE_NEW, s.settings.changeTextNew)          // texte par defaut ancien : remplace (il donne maintenant la fin)
+        assertTrue(s.settings.changeTextNew.contains("{fin}"))
+        // un texte personnalise n'est pas touche
+        val custom = SnapshotJson.fromJson("""{"settings":{"mode":"RELAY","changeTextNew":"Perso {nom}"}}""")
+        assertEquals("Perso {nom}", custom.settings.changeTextNew)
+        assertEquals(s, SnapshotJson.fromJson(SnapshotJson.toJson(s)))
     }
 }
 

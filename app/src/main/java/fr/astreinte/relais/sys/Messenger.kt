@@ -41,7 +41,10 @@ object Messenger {
         Store.init(app)
         val zone = ZoneId.systemDefault()
         val hhmm = java.time.LocalTime.now(zone).let { "%02d:%02d".format(it.hour, it.minute) }
-        val msgs = ChangeNotice.messages(Store.snapshot.value, previous, new, hhmm)
+        val snap = Store.snapshot.value
+        val period = Messages.currentPeriod(snap, Instant.now(), zone)
+        val endText = period?.end?.let { Messages.whenText(it, zone) } ?: "nouvel ordre"
+        val msgs = ChangeNotice.messages(snap, previous, new, hhmm, endText)
         if (msgs.isEmpty()) return
         val logs = msgs.map { m ->
             val sent = m.phone != null && SmsOut.send(app, m.phone, m.text)
@@ -52,6 +55,13 @@ object Messenger {
             }
             LogEntry(System.currentTimeMillis(), "Changement d'astreinte", m.doctor.name, sent, message)
         }
-        Store.update { s -> s.copy(log = (logs.reversed() + s.log).take(100)) }
+        // Le nouveau médecin vient d'être prévenu : le message de début de période ne doit pas partir en double
+        val announced = period?.takeIf { p -> p.doctorId == new && msgs.any { it.becomesOnCall } }?.let { Messages.keyOf(it, zone) }
+        Store.update { s ->
+            s.copy(
+                log = (logs.reversed() + s.log).take(100),
+                sentMessages = if (announced != null) (s.sentMessages + announced).takeLast(60) else s.sentMessages,
+            )
+        }
     }
 }

@@ -54,50 +54,20 @@ object Mode {
 }
 
 /**
- * Message automatique envoyé par le téléphone relais à un médecin.
- * Envoyé à [at], au médecin d'astreinte au créneau [slotTime] du jour. Les variables du [text] :
- * {nom} {debut} {fin} {date}.
+ * Message envoyé UNE FOIS au début de chaque période d'astreinte (suite ininterrompue de créneaux confiés au
+ * même médecin, week-end compris). Variables : {nom} {debut} {fin} (ex. « ven 13/11 a 18h » / « lun 16/11 a 9h »).
  */
-data class MessageRule(
-    val id: String,
-    val enabled: Boolean,
-    val at: LocalTime,
-    val slotTime: LocalTime,
-    /** Si vrai : n'envoyer que lorsque la bascule vers ce médecin est effectivement faite. */
-    val confirmsSwitch: Boolean,
-    val text: String,
-    /** false : jours ouvrés seulement ; true : week-ends et jours fériés seulement (voir [Holidays.isOffDay]). */
-    val offDays: Boolean = false,
-)
-
-val DEFAULT_MESSAGE_RULES: List<MessageRule> = listOf(
-    MessageRule(
-        "midi", true, LocalTime.of(12, 0), LocalTime.of(12, 0), true,
-        "Bonjour {nom}, tu es d'astreinte ce midi ({debut}-{fin}). La bascule vers ton numero est faite."
-    ),
-    MessageRule(
-        "apm", true, LocalTime.of(17, 0), LocalTime.of(17, 0), true,
-        "Bonjour {nom}, tu es d'astreinte cet apres-midi ({debut}-{fin}). La bascule vers ton numero est faite."
-    ),
-    MessageRule(
-        "rappel", true, LocalTime.of(17, 0), LocalTime.of(18, 0), false,
-        "Rappel {nom} : tu es d'astreinte ce soir a partir de {debut} jusqu'a {fin}."
-    ),
-    MessageRule(
-        "soir", true, LocalTime.of(18, 0), LocalTime.of(18, 0), true,
-        "Bonjour {nom}, la bascule est faite : ton astreinte commence ({debut}-{fin})."
-    ),
-    MessageRule(
-        "jour", true, LocalTime.of(9, 0), LocalTime.of(9, 0), true,
-        "Bonjour {nom}, tu es d'astreinte toute la journee ({date}). La bascule vers ton numero est faite.",
-        offDays = true,
-    ),
-)
+const val DEFAULT_PERIOD_TEXT =
+    "Bonjour {nom}, tu es d'astreinte du {debut} au {fin}. La bascule vers ton numero est faite."
 
 const val DEFAULT_CHANGE_NEW =
-    "Bonjour {nom}, l'astreinte en cours vient de t'etre confiee (modification du planning a {heure}). La bascule vers ton numero est faite."
+    "Bonjour {nom}, l'astreinte en cours vient de t'etre confiee (modification du planning a {heure}) jusqu'au {fin}. La bascule vers ton numero est faite."
 const val DEFAULT_CHANGE_OLD =
     "Bonjour {nom}, tu n'es plus d'astreinte pour l'instant (modification du planning a {heure}). Les appels ne te sont plus renvoyes."
+
+/** Ancien texte par défaut (sans la fin de l'astreinte) : remplacé par le nouveau s'il n'a pas été personnalisé. */
+const val LEGACY_CHANGE_NEW =
+    "Bonjour {nom}, l'astreinte en cours vient de t'etre confiee (modification du planning a {heure}). La bascule vers ton numero est faite."
 
 data class Settings(
     /** Interrupteur général : tant qu'il est à false, l'app n'envoie JAMAIS aucun code. */
@@ -128,7 +98,8 @@ data class Settings(
     val relayNumber: String = "",
     /** Mode relais : messages automatiques aux médecins. */
     val msgEnabled: Boolean = false,
-    val msgRules: List<MessageRule> = DEFAULT_MESSAGE_RULES,
+    /** Message de début d'astreinte (un seul par période). */
+    val periodText: String = DEFAULT_PERIOD_TEXT,
     /** Mode relais : prévenir par SMS quand une MODIFICATION change l'astreinte en cours. */
     val changeNotify: Boolean = true,
     val changeTextNew: String = DEFAULT_CHANGE_NEW,
