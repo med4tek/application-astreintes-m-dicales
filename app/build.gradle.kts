@@ -22,8 +22,8 @@ android {
         applicationId = "fr.astreinte.relais"
         minSdk = 26
         targetSdk = 34
-        versionCode = 18
-        versionName = "3.7.0"
+        versionCode = 19
+        versionName = "3.8.0"
     }
 
     signingConfigs {

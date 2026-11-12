@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -31,6 +32,7 @@ import fr.astreinte.relais.data.Store
 import fr.astreinte.relais.sys.Relay
 import fr.astreinte.relais.ui.AppTheme
 import fr.astreinte.relais.ui.DoctorsScreen
+import fr.astreinte.relais.ui.HelpScreen
 import fr.astreinte.relais.ui.ImportScreen
 import fr.astreinte.relais.ui.ModeChooserDialog
 import fr.astreinte.relais.ui.PlanningScreen
@@ -43,6 +45,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     IMPORT("Import", Icons.Filled.Share),
     SYNC("Synchro", Icons.Filled.Refresh),
     SETTINGS("Réglages", Icons.Filled.Settings),
+    HELP("Aide", Icons.Filled.Info),
 }
 
 class MainActivity : ComponentActivity() {
@@ -89,6 +92,7 @@ class MainActivity : ComponentActivity() {
                         Tab.IMPORT -> ImportScreen(snap, { block -> editAs(Author(Author.VIA_IMPORT), block) }, modifier = m)
                         Tab.SYNC -> SyncScreen(snap, resumeTick, ::edit, modifier = m)
                         Tab.SETTINGS -> SettingsScreen(snap, resumeTick, ::edit, modifier = m)
+                        Tab.HELP -> HelpScreen(snap, modifier = m)
                     }
                 }
 

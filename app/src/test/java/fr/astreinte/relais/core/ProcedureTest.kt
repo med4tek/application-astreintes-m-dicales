@@ -425,3 +425,53 @@ class LayoutNotesTest {
         listOf(9, 12, 14, 17, 18, 22).forEach { assertEquals("a", who("2026-11-07", it)); assertEquals("a", who("2026-11-11", it)) }
     }
 }
+
+class WhoIsOnCallSmsTest {
+    private val docs = listOf(STANDARD_DOCTOR, Doctor("a", "Dr Alice", "0611111111"), Doctor("b", "Dr Bruno", "0622222222"))
+    private val today = java.time.LocalDate.of(2026, 11, 12)
+    private fun act(vararg a: String) = SmsCommands.interpret(a.toList(), docs, DEFAULT_SLOTS, today)
+
+    @Test fun `le code et une ou plusieurs dates suffisent pour consulter`() {
+        assertEquals(SmsAction.Plan(listOf(today.plusDays(1))), act("demain"))
+        assertEquals(SmsAction.Plan(listOf(today)), act("auj"))
+        assertEquals(SmsAction.Plan(listOf(today)), act("aujourd'hui"))
+        assertEquals(SmsAction.Plan(listOf(today, today.plusDays(2))), act("12/11", "14/11"))
+        assertEquals(SmsAction.Plan(listOf(today, today.plusDays(2))), act("12/11,14/11"))
+        assertEquals(SmsAction.Plan((12..14).map { java.time.LocalDate.of(2026, 11, it) }), act("12/11-14/11"))
+        assertEquals(7, (act("semaine") as SmsAction.Plan).dates.size)
+        // le « ? » reste possible
+        assertEquals(SmsAction.Plan(listOf(today.plusDays(1))), act("?", "demain"))
+        assertEquals(SmsAction.Query, act("?"))
+    }
+
+    @Test fun `une modification reste une modification et trop de jours est refuse`() {
+        assertTrue(act("12/11", "18=Alice") is SmsAction.Edit)
+        assertTrue((act("01/12-15/12") as SmsAction.Error).why.contains("Maximum"))
+    }
+
+    @Test fun `la reponse donne les bascules du jour, week-end compris`() {
+        fun sh(id: String, d: String, h: String, who: String) = Shift(id, java.time.LocalDate.parse(d), java.time.LocalTime.parse(h), who)
+        val snap = Snapshot(
+            doctors = docs,
+            shifts = listOf(sh("1", "2026-11-13", "18:00", "a"), sh("2", "2026-11-14", "09:00", "a"), sh("3", "2026-11-15", "09:00", "b")),
+            settings = Settings(enabled = true),
+        )
+        val zone = java.time.ZoneId.of("Europe/Paris")
+        val now = java.time.ZonedDateTime.of(2026, 11, 15, 10, 0, 0, 0, zone).toInstant()
+        val text = SmsCommands.planText(snap, listOf(java.time.LocalDate.of(2026, 11, 14), java.time.LocalDate.of(2026, 11, 15), java.time.LocalDate.of(2026, 11, 16)), zone, now)
+        assertEquals(
+            "sam 14/11: Alice toute la journee\n" +
+                "dim 15/11: 0h Alice, 9h Bruno (en cours)\n" +
+                "lun 16/11: 0h Bruno, 9h STD",
+            text,
+        )
+    }
+
+    @Test fun `un jour ordinaire liste chaque bascule`() {
+        fun sh(id: String, h: String, who: String?) = Shift(id, java.time.LocalDate.parse("2026-11-12"), java.time.LocalTime.parse(h), who)
+        val snap = Snapshot(doctors = docs, shifts = listOf(sh("1", "12:00", "a"), sh("2", "17:00", "b"), sh("3", "18:00", "a")), settings = Settings(enabled = true))
+        val zone = java.time.ZoneId.of("Europe/Paris")
+        val now = java.time.ZonedDateTime.of(2026, 11, 12, 12, 30, 0, 0, zone).toInstant()
+        assertEquals("jeu 12/11: 0h STD, 12h Alice (en cours), 14h STD, 17h Bruno, 18h Alice", SmsCommands.planText(snap, listOf(java.time.LocalDate.of(2026, 11, 12)), zone, now))
+    }
+}

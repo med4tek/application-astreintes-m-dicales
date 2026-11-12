@@ -55,6 +55,8 @@ sealed interface SmsAction {
  *     AST 1234 demain 9=STD 18=OFF        mots : auj, dem/demain ; STD = standard ; OFF = aucun renvoi
  *     AST 1234 12/11 RAZ                  efface la saisie du jour (retour aux valeurs par défaut)
  *     AST 1234 12/11 12=DEF               efface seulement ce créneau
+ *     AST 1234 demain                     CONSULTATION : qui est d'astreinte, avec les bascules du jour
+ *     AST 1234 12/11,14/11                idem pour plusieurs jours ; "semaine" = les 7 prochains jours (max 7)
  *     AST 1234 ?                          répond avec l'état actuel
  *     AST 1234 ? demain                   répond avec le planning de ces jours (max 7)
  *     AST 1234 ? 12/11-14/11              idem sur une période ; "semaine" = les 7 prochains jours
@@ -80,6 +82,8 @@ object SmsCommands {
         allowFreeTimes: Boolean = false,
     ): SmsAction {
         if (args[0] == "?") return interpretQuery(args.drop(1), today)
+        // Code + date(s) seulement : consultation (qui est d'astreinte, bascules du jour), sans le « ? »
+        if (args.all { isDateToken(it, today) }) return interpretQuery(args, today)
         if (args[0].equals("SYNC", ignoreCase = true)) {
             val id = args.getOrNull(1)?.takeIf { it.matches(Regex("\\d{3,8}")) }
                 ?: return SmsAction.Error("Format : AST <PIN> SYNC <numéro>")
@@ -156,6 +160,11 @@ object SmsCommands {
         }
     }
 
+    private fun isDateToken(token: String, today: LocalDate): Boolean {
+        val low = ascii(token).lowercase(Locale.ROOT)
+        return low == "sem" || low == "semaine" || parseDates(token, today) is DateParse.Ok
+    }
+
     private fun interpretQuery(rest: List<String>, today: LocalDate): SmsAction {
         if (rest.isEmpty()) return SmsAction.Query
         val dates = java.util.TreeSet<LocalDate>()
@@ -176,11 +185,12 @@ object SmsCommands {
     }
 
     /**
-     * Texte de réponse : pour chaque jour, qui reçoit les appels à chaque créneau
-     * (valeur réellement en vigueur à l'heure du créneau, défauts et héritage compris).
-     * Ex. « lun 09/11: 9h STD 12h Alice 14h STD 17h STD 18h Alice ».
+     * Texte de réponse : pour chaque jour, qui reçoit les appels et À QUELLE HEURE la bascule a lieu
+     * (défauts et héritage compris). « 0h » = l'astreinte qui court depuis la veille. Un jour sans bascule :
+     * « Alice toute la journee ». Pour aujourd'hui, la bascule en vigueur est marquée « (en cours) ».
+     * Ex. « lun 09/11: 0h STD, 12h Alice, 14h STD, 18h Alice (en cours) ». STD = standard, OFF = aucun renvoi.
      */
-    fun planText(snap: Snapshot, dates: List<LocalDate>, zone: java.time.ZoneId): String {
+    fun planText(snap: Snapshot, dates: List<LocalDate>, zone: java.time.ZoneId, now: java.time.Instant = java.time.Instant.now()): String {
         if (dates.isEmpty()) return "Aucun jour."
         val slots = snap.settings.slots.sortedBy { it.time }
         val timeline = Planner.effective(snap.shifts, slots, dates.min().minusDays(8), dates.max())
@@ -189,14 +199,26 @@ object SmsCommands {
             id == STANDARD_ID -> "STD"
             else -> snap.doctor(id)?.name?.replace(Regex("^(Dr\\.?|Docteur|Pr\\.?)\\s+", RegexOption.IGNORE_CASE), "") ?: "?"
         }
+        val today = now.atZone(zone).toLocalDate()
+        val nowTime = now.atZone(zone).toLocalTime()
         val lines = dates.map { date ->
             val day = date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.FRENCH).trimEnd('.')
-            val cells = slots.joinToString(" ") { slot ->
-                val at = java.time.ZonedDateTime.of(date, slot.time, zone).toInstant()
-                val shift = Planner.current(timeline, at, zone)
-                "${shortHour(slot.time)} ${if (shift == null) "-" else who(shift.doctorId)}"
+            var last: String? = Planner.current(timeline, date.atStartOfDay(zone).toInstant(), zone)?.let { who(it.doctorId) }
+            val tokens = ArrayList<Pair<LocalTime, String>>()
+            if (last != null) tokens += LocalTime.MIDNIGHT to last
+            for (sh in timeline.filter { it.date == date }.sortedBy { it.time }) {
+                val w = who(sh.doctorId)
+                if (w != last) { tokens += sh.time to w; last = w }
             }
-            "$day ${fmt(date)}: $cells"
+            val body = when {
+                tokens.isEmpty() -> "rien de planifie"
+                tokens.size == 1 -> "${tokens[0].second} toute la journee"
+                else -> {
+                    val current = if (date == today) tokens.indexOfLast { it.first <= nowTime } else -1
+                    tokens.mapIndexed { i, (t, w) -> "${shortHour(t)} $w" + if (i == current) " (en cours)" else "" }.joinToString(", ")
+                }
+            }
+            "$day ${fmt(date)}: $body"
         }
         return (lines + if (!snap.settings.enabled) listOf("(bascule auto désactivée)") else emptyList()).joinToString("\n")
     }
@@ -275,7 +297,7 @@ object SmsCommands {
 
     private fun parseSingleDate(s: String, today: LocalDate): DateParse? {
         when (s) {
-            "auj", "aujourdhui" -> return DateParse.Ok(setOf(today))
+            "auj", "aujourdhui", "aujourd'hui" -> return DateParse.Ok(setOf(today))
             "dem", "demain" -> return DateParse.Ok(setOf(today.plusDays(1)))
         }
         val m = DATE.matchEntire(s) ?: return null

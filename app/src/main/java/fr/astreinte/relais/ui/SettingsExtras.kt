@@ -244,7 +244,7 @@ fun SmsSection(
         Column(Modifier.weight(1f)) {
             Text("Répondre par SMS")
             Text(
-                "Confirme chaque modification (« OK 12/11 18h→Martin ») ou signale l'erreur. Coûte un SMS.",
+                "Confirme chaque modification (« OK 12/11 18h→Martin ») ou signale l'erreur. Coûte un SMS. Les demandes de consultation (état, planning d'un jour) reçoivent toujours leur réponse.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -318,12 +318,10 @@ fun SmsSection(
             Text("STD = standard, OFF = aucun renvoi, demain/auj", style = MaterialTheme.typography.bodySmall)
             Text("AST PIN 12/11 RAZ", fontFamily = code)
             Text("efface la journée (retour au défaut) ; ${h2}=DEF n'efface qu'un créneau", style = MaterialTheme.typography.bodySmall)
+            Text("AST PIN demain", fontFamily = code)
+            Text("QUI est d'astreinte ce jour-là, avec les bascules (« 12h Martin, 14h STD, 18h Durand »). Plusieurs dates : « 12/11,14/11 » ; période : « 12/11-14/11 » ; « semaine » (7 jours max)", style = MaterialTheme.typography.bodySmall)
             Text("AST PIN ?", fontFamily = code)
-            Text("l'état actuel du renvoi (nécessite « Répondre par SMS »)", style = MaterialTheme.typography.bodySmall)
-            Text("AST PIN ? demain", fontFamily = code)
-            Text("le planning de ces jours en réponse (7 jours max)", style = MaterialTheme.typography.bodySmall)
-            Text("AST PIN ? 12/11-14/11", fontFamily = code)
-            Text("idem sur une période ; « ? semaine » = les 7 prochains jours", style = MaterialTheme.typography.bodySmall)
+            Text("l'état actuel du renvoi", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

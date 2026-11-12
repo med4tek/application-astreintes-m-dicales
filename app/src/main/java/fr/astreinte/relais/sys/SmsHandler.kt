@@ -168,16 +168,16 @@ object SmsHandler {
         return if (doctor != null) "${doctor.name} ($sender)" else sender
     }
 
-    /** Une consultation n'a de sens que si la réponse par SMS est possible : sinon on le dit dans le journal. */
+    /**
+     * Une consultation (état, planning de quelques jours) obtient TOUJOURS sa réponse : c'est son but, et
+     * l'expéditeur est autorisé et a donné le bon PIN. Seule la permission d'envoi de SMS peut l'empêcher.
+     */
     private fun answerQuery(app: Context, snap: Snapshot, sender: String, what: String, text: String) {
-        val st = snap.settings
-        if (!st.smsReply) {
-            log(sender, false, "$what reçue mais « Répondre par SMS » est désactivé dans les réglages")
-        } else if (!Perms.sendSms(app)) {
+        if (!Perms.sendSms(app)) {
             log(sender, false, "$what reçue mais la permission d'envoi de SMS est refusée")
         } else {
-            log(sender, true, what)
-            reply(app, st, sender, text)
+            val ok = SmsOut.send(app, sender, text.take(900))
+            log(sender, ok, if (ok) what else "$what : réponse non envoyée")
         }
     }
 

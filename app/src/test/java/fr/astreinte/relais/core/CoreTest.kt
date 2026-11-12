@@ -445,12 +445,12 @@ class SmsCommandsTest {
             ),
             settings = Settings(enabled = true),
         )
-        val text = SmsCommands.planText(snap, listOf(d("2026-11-09"), d("2026-11-10"), d("2026-11-12")), PARIS)
+        val text = SmsCommands.planText(snap, listOf(d("2026-11-09"), d("2026-11-10"), d("2026-11-12")), PARIS, java.time.Instant.parse("2000-01-01T00:00:00Z"))
         assertEquals(
-            "lun 09/11: 9h STD 12h Alice 14h STD 17h STD 18h Alice\n" +
-                "mar 10/11: 9h STD 12h OFF 14h STD 17h STD 18h Zoé\n" +
-                // le 12/11 : rien de saisi, l'astreinte du 10 au soir court jusqu'à 9h puis standard
-                "jeu 12/11: 9h STD 12h STD 14h STD 17h STD 18h STD",
+            "lun 09/11: 0h STD, 12h Alice, 14h STD, 18h Alice\n" +
+                "mar 10/11: 0h Alice, 9h STD, 12h OFF, 14h STD, 18h Zoé\n" +
+                // le 11/11 est férié : pas de standard, Zoé continue ; le 12/11 le standard reprend à 9h
+                "jeu 12/11: 0h Zoé, 9h STD",
             text
         )
         assertTrue(SmsCommands.planText(snap.copy(settings = Settings(enabled = false)), listOf(d("2026-11-09")), PARIS).contains("désactivée"))
@@ -462,7 +462,7 @@ class SmsCommandsTest {
         assertTrue(err("12/11", "18=Zorro").contains("Zorro"))
         assertTrue(err("18=Martin").contains("date"))
         assertTrue(err("31/02", "18=Martin").contains("invalide"))
-        assertTrue(err("12/11").contains("Rien à modifier"))
+        assertTrue(err("12/11", "18=Martin", "13/11").contains("Rien à modifier"))   // date sans contenu au milieu d'une modification
         assertTrue(err("blabla").contains("blabla"))
         assertTrue(err("15/11-12/11", "18=Martin").contains("inversée"))
         assertTrue(err("01/12-15/02", "18=Martin").contains("trop longue"))
