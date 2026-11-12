@@ -13,3 +13,6 @@ keystore.properties
 *.keystore
 *.jks
 *.apk
+
+# L'APK publié (dernière version) est la seule exception
+!apk/AstreinteRelais.apk

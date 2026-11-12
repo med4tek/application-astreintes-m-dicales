@@ -4,6 +4,18 @@ Application Android personnelle (hors Play Store) qui change toute seule le **re
 
 À l'heure de chaque changement, le téléphone compose le code `**21*NUMÉRO#` (comme le composeur). Pour désactiver, `##21#`.
 
+## Télécharger l'application
+
+**[⬇ Télécharger la dernière version (APK Android)](https://github.com/med4tek/application-astreintes-m-dicales/raw/main/apk/AstreinteRelais.apk)** : version 3.8.0, pour Android 8 ou plus (testée sous Android 15).
+
+1. Ouvrez le fichier téléchargé sur le téléphone et autorisez l'installation depuis cette source.
+2. Play Protect peut afficher un avertissement (l'application n'est pas publiée sur le Play Store) : « Installer quand même ».
+3. Android 13 et plus : si la permission SMS est grisée, infos de l'app → ⋮ → « Autoriser les paramètres restreints ».
+4. **Mise à jour** : téléchargez la nouvelle version et ouvrez-la par-dessus l'ancienne (même signature, le planning est conservé). Ne désinstallez pas avant.
+
+Vérification (facultative) : la somme de contrôle SHA-256 du fichier et l'empreinte du certificat de signature sont dans [`apk/SHA256.txt`](apk/SHA256.txt) ; le fichier doit donner `efc77ba1f679e33bccde97c5276b6ff9dcfb32f95f2a641027458281cf45e97a`. Le certificat se contrôle avec `apksigner verify --print-certs apk/AstreinteRelais.apk`.
+
+
 ## Aide intégrée
 
 L'onglet **Aide** de l'application explique, en langage simple, la mise en route côté **relais** et côté **consultation**, comment remplir le planning (fichier Excel, photo, à la main), les règles de la journée et des week-ends, comment savoir qui est d'astreinte par SMS, refiler une astreinte, les messages automatiques et le dépannage.
