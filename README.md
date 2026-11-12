@@ -174,3 +174,9 @@ Prérequis : JDK 17+ et SDK Android (plateforme 34).
 
 Si `keystore.properties` existe à la racine (fichier ignoré par git), l'APK est signé avec votre clé. Sinon il est signé avec la clé de debug.
 **Sauvegardez `astreinte.keystore` et `keystore.properties`** : sans la même clé, une mise à jour exige de désinstaller l'app (donc de perdre le planning).
+
+## Licence
+
+Ce logiciel est publié sous **licence MIT** (voir le fichier [LICENSE](LICENSE)) — © 2026 Dr Guitton Sébastien - med4tek. Vous pouvez l'utiliser, le copier, le modifier et le redistribuer librement, en conservant la mention de copyright.
+
+**Avertissement : aucune garantie.** Le logiciel est fourni « tel quel ». Ce n'est **pas** un dispositif médical et il n'a pas été validé comme tel. Il compose des codes de renvoi d'appel auprès de l'opérateur, dont le résultat dépend du réseau et de l'opérateur : **testez-le avant tout usage réel** (exercices, vérification du renvoi en place) et gardez une conduite à tenir de secours (appel du 15 en cas de doute).
